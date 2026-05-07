@@ -18,9 +18,16 @@
         }
     ],
     "require": {
-        "php": "^8.4"
+        "php": "^8.4",
+        "ext-bcmath": "*",
+        "thesis/endian": "^0.3.3",
+        "thesis/varint": "^0.2.0"
     },
     "require-dev": {
+        "colinodell/json5": "^3.0",
+        "cuyz/valinor": "^2.4",
+        "nette/php-generator": "^4.2",
+        "nikic/php-parser": "^5.7",
         "phpunit/phpunit": "^12.4",
         "symfony/var-dumper": "^8.0"
     },
@@ -31,7 +38,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Thesis\\Kafka\\": "tests/"
+            "Thesis\\Kafka\\": "tests/",
+            "Thesis\\Kafka\\Generator\\": "generator/"
         }
     },
     "config": {

@@ -79,6 +79,29 @@ vendor: composer.json $(wildcard composer.lock)
 	@if [ -f vendor/.lowest ]; then $(MAKE) install-lowest; else $(MAKE) install; fi
 
 ##
+## Kafka
+## -----
+
+SCHEMAS_DIR := schemas/messages
+
+KAFKA_VERSION ?= $(shell git ls-remote --tags --refs --sort=-v:refname https://github.com/apache/kafka.git \
+    | grep -oP 'refs/tags/\K[0-9]+\.[0-9]+\.[0-9]+$$' \
+    | head -n1)
+
+.PHONY: sync-schemas
+sync-schemas:
+	@test -n "$(KAFKA_VERSION)" || (echo "Could not resolve KAFKA_VERSION" && exit 1)
+	@echo "Updating schemas to Kafka $(KAFKA_VERSION)..."
+	@mkdir -p $(SCHEMAS_DIR)
+	@curl -fsSL "https://github.com/apache/kafka/archive/refs/tags/$(KAFKA_VERSION).tar.gz" \
+	    | tar -xz \
+	        --strip-components=7 \
+	        -C $(SCHEMAS_DIR) \
+	        --wildcards \
+	        "kafka-$(KAFKA_VERSION)/clients/src/main/resources/common/message/*.json"
+	@echo "Done. Updated to $(KAFKA_VERSION)."
+
+##
 ## Tools
 ## -----
 

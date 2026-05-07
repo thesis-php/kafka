@@ -8,6 +8,7 @@ parameters:
     paths:
         - examples
         - src
+        - generator
         - tests
     tmpDir: var/phpstan
     editorUrl: ''

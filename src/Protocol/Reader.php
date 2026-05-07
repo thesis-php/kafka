@@ -1,0 +1,306 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Thesis\Kafka\Protocol;
+
+use Thesis\Endian;
+use Thesis\Varint;
+
+/**
+ * Reads Kafka wire-format primitives from an in-memory byte buffer.
+ *
+ * @api
+ */
+final class Reader
+{
+    /** @var non-negative-int */
+    private int $offset = 0;
+
+    /** @var non-negative-int */
+    private readonly int $length;
+
+    public function __construct(
+        private readonly string $buffer,
+    ) {
+        $this->length = \strlen($this->buffer);
+    }
+
+    public function readInt8(): int
+    {
+        return Endian\Order::Network->unpackInt8($this->read(1));
+    }
+
+    public function readInt16(): int
+    {
+        return Endian\Order::Network->unpackInt16($this->read(2));
+    }
+
+    public function readInt32(): int
+    {
+        return Endian\Order::Network->unpackInt32($this->read(4));
+    }
+
+    /**
+     * @return non-negative-int
+     */
+    public function readUint32(): int
+    {
+        return Endian\Order::Network->unpackUint32($this->read(4));
+    }
+
+    public function readInt64(): int
+    {
+        return (int) Endian\Order::Network->unpackInt64($this->read(8))->value;
+    }
+
+    /**
+     * @return non-negative-int
+     */
+    public function readUint16(): int
+    {
+        return Endian\Order::Network->unpackUint16($this->read(2));
+    }
+
+    public function readFloat64(): float
+    {
+        return Endian\Order::Network->unpackDouble($this->read(8));
+    }
+
+    public function readBool(): bool
+    {
+        return $this->readInt8() !== 0;
+    }
+
+    /**
+     * @return non-negative-int
+     */
+    public function readUnsignedVarint(): int
+    {
+        $buffer = substr($this->buffer, $this->offset);
+        \assert($buffer !== '');
+
+        $sized = Varint\BcMath::Codec->decodeVarintSized($buffer);
+        $this->offset += $sized->size;
+
+        /** @var non-negative-int */
+        return (int) $sized->value->value;
+    }
+
+    public function readString(): string
+    {
+        $length = $this->readInt16();
+        if ($length < 0) {
+            throw new \UnexpectedValueException(
+                "Non-nullable string had negative length {$length}",
+            );
+        }
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readNullableString(): ?string
+    {
+        $length = $this->readInt16();
+        if ($length === -1) {
+            return null;
+        }
+
+        if ($length < 0) {
+            throw new \UnexpectedValueException(
+                "Invalid nullable string length {$length}",
+            );
+        }
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readCompactString(): string
+    {
+        $length = $this->readUnsignedVarint();
+        if ($length === 0) {
+            throw new \UnexpectedValueException(
+                'Non-nullable compact string had null marker',
+            );
+        }
+
+        --$length;
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readCompactNullableString(): ?string
+    {
+        $length = $this->readUnsignedVarint();
+        if ($length === 0) {
+            return null;
+        }
+
+        --$length;
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readBytes(): string
+    {
+        $length = $this->readInt32();
+        if ($length < 0) {
+            throw new \UnexpectedValueException(
+                "Non-nullable bytes had negative length {$length}",
+            );
+        }
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readNullableBytes(): ?string
+    {
+        $length = $this->readInt32();
+        if ($length === -1) {
+            return null;
+        }
+
+        if ($length < 0) {
+            throw new \UnexpectedValueException(
+                "Invalid nullable bytes length {$length}",
+            );
+        }
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readCompactBytes(): string
+    {
+        $length = $this->readUnsignedVarint();
+        if ($length === 0) {
+            throw new \UnexpectedValueException(
+                'Non-nullable compact bytes had null marker',
+            );
+        }
+
+        --$length;
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readCompactNullableBytes(): ?string
+    {
+        $length = $this->readUnsignedVarint();
+        if ($length === 0) {
+            return null;
+        }
+
+        --$length;
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readUuid(): string
+    {
+        return $this->read(16);
+    }
+
+    /**
+     * @return non-negative-int
+     */
+    public function readArrayLength(): int
+    {
+        $length = $this->readInt32();
+        if ($length === -1) {
+            throw new \UnexpectedValueException(
+                'Non-nullable array had null marker',
+            );
+        }
+
+        if ($length < 0) {
+            throw new \UnexpectedValueException(
+                "Invalid array length {$length}",
+            );
+        }
+
+        return $length;
+    }
+
+    /**
+     * @return ?non-negative-int
+     */
+    public function readNullableArrayLength(): ?int
+    {
+        $length = $this->readInt32();
+        if ($length === -1) {
+            return null;
+        }
+
+        if ($length < 0) {
+            throw new \UnexpectedValueException(
+                "Invalid nullable array length {$length}",
+            );
+        }
+
+        return $length;
+    }
+
+    /**
+     * @return non-negative-int
+     */
+    public function readCompactArrayLength(): int
+    {
+        $length = $this->readUnsignedVarint();
+        if ($length === 0) {
+            throw new \UnexpectedValueException(
+                'Non-nullable compact array had null marker',
+            );
+        }
+
+        return $length - 1;
+    }
+
+    /**
+     * @return ?non-negative-int
+     */
+    public function readCompactNullableArrayLength(): ?int
+    {
+        $length = $this->readUnsignedVarint();
+        if ($length === 0) {
+            return null;
+        }
+
+        return $length - 1;
+    }
+
+    public function readTaggedFields(): UnknownTags
+    {
+        $count = $this->readUnsignedVarint();
+        $tags = new UnknownTags();
+
+        for ($i = 0; $i < $count; ++$i) {
+            $tag = $this->readUnsignedVarint();
+            $size = $this->readUnsignedVarint();
+            $tags[$tag] = $size === 0 ? '' : $this->read($size);
+        }
+
+        return $tags;
+    }
+
+    /**
+     * @param non-negative-int $n
+     * @return non-empty-string
+     */
+    private function read(int $n): string
+    {
+        if ($this->offset + $n > $this->length) {
+            throw new \UnderflowException(\sprintf(
+                'Cannot read %d byte(s) at offset %d: only %d byte(s) remaining',
+                $n,
+                $this->offset,
+                $this->length - $this->offset,
+            ));
+        }
+
+        $chunk = substr($this->buffer, $this->offset, $n);
+        $this->offset += $n;
+
+        /** @var non-empty-string */
+        return $chunk;
+    }
+}

@@ -1,0 +1,46 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Thesis\Kafka\Protocol\Generated;
+
+use Thesis\Kafka\Protocol\Reader;
+use Thesis\Kafka\Protocol\UnknownTags;
+
+/**
+ * @api
+ * @generated
+ */
+final readonly class ListPartitionReassignmentsResponse implements Response
+{
+    /**
+     * @param int $throttleTimeMs The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota.
+     * @param int $errorCode The top-level error code, or 0 if there was no error.
+     * @param ?string $errorMessage The top-level error message, or null if there was no error.
+     * @param list<ListPartitionReassignmentsResponse\OngoingTopicReassignment> $topics The ongoing reassignments for each topic.
+     * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
+     */
+    public function __construct(
+        public int $throttleTimeMs,
+        public int $errorCode,
+        public ?string $errorMessage,
+        public array $topics,
+        public UnknownTags $unknownTags = new UnknownTags(),
+    ) {}
+
+    #[\Override]
+    public static function decode(Reader $reader, int $version): static
+    {
+        $throttleTimeMs = $reader->readInt32();
+        $errorCode = $reader->readInt16();
+        $errorMessage = $reader->readCompactNullableString();
+        $topicsCount = $reader->readCompactArrayLength();
+        $topics = [];
+        for ($topicsIndex = 0; $topicsIndex < $topicsCount; ++$topicsIndex) {
+            $item = ListPartitionReassignmentsResponse\OngoingTopicReassignment::decode($reader, $version);
+            $topics[] = $item;
+        }
+        $unknownTags = $reader->readTaggedFields();
+        return new self($throttleTimeMs, $errorCode, $errorMessage, $topics, $unknownTags);
+    }
+}
