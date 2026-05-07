@@ -176,6 +176,29 @@ final class GeneratorTest
                                 self::Sample => new VersionRange(0, 1),
                             };
                         }
+
+                        public function isFlexibleVersion(int $apiVersion): bool
+                        {
+                            return match ($this) {
+                                self::Sample => $apiVersion >= 1,
+                            };
+                        }
+
+                        /**
+                         * @return non-negative-int
+                         */
+                        public function requestHeaderVersion(int $apiVersion): int
+                        {
+                            return $this->isFlexibleVersion($apiVersion) ? 2 : 1;
+                        }
+
+                        /**
+                         * @return non-negative-int
+                         */
+                        public function responseHeaderVersion(int $apiVersion): int
+                        {
+                            return $this->isFlexibleVersion($apiVersion) ? 1 : 0;
+                        }
                     }
 
                     PHP,

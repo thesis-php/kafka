@@ -240,6 +240,11 @@ final readonly class Ast
         return new Node\MatchArm([$cond], $body);
     }
 
+    public static function defaultArm(Expr $body): Node\MatchArm
+    {
+        return new Node\MatchArm(null, $body);
+    }
+
     public static function return(?Expr $expr = null): Stmt\Return_
     {
         return new Stmt\Return_($expr);

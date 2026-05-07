@@ -196,4 +196,118 @@ enum ApiKey: int
             self::DeleteShareGroupOffsets => new VersionRange(0, 0),
         };
     }
+
+    public function isFlexibleVersion(int $apiVersion): bool
+    {
+        return match ($this) {
+            self::Produce => $apiVersion >= 9,
+            self::Fetch => $apiVersion >= 12,
+            self::ListOffsets => $apiVersion >= 6,
+            self::Metadata => $apiVersion >= 9,
+            self::OffsetCommit => $apiVersion >= 8,
+            self::OffsetFetch => $apiVersion >= 6,
+            self::FindCoordinator => $apiVersion >= 3,
+            self::JoinGroup => $apiVersion >= 6,
+            self::Heartbeat => $apiVersion >= 4,
+            self::LeaveGroup => $apiVersion >= 4,
+            self::SyncGroup => $apiVersion >= 4,
+            self::DescribeGroups => $apiVersion >= 5,
+            self::ListGroups => $apiVersion >= 3,
+            self::SaslHandshake => false,
+            self::ApiVersions => $apiVersion >= 3,
+            self::CreateTopics => $apiVersion >= 5,
+            self::DeleteTopics => $apiVersion >= 4,
+            self::DeleteRecords => $apiVersion >= 2,
+            self::InitProducerId => $apiVersion >= 2,
+            self::OffsetForLeaderEpoch => $apiVersion >= 4,
+            self::AddPartitionsToTxn => $apiVersion >= 3,
+            self::AddOffsetsToTxn => $apiVersion >= 3,
+            self::EndTxn => $apiVersion >= 3,
+            self::WriteTxnMarkers => $apiVersion >= 1,
+            self::TxnOffsetCommit => $apiVersion >= 3,
+            self::DescribeAcls => $apiVersion >= 2,
+            self::CreateAcls => $apiVersion >= 2,
+            self::DeleteAcls => $apiVersion >= 2,
+            self::DescribeConfigs => $apiVersion >= 4,
+            self::AlterConfigs => $apiVersion >= 2,
+            self::AlterReplicaLogDirs => $apiVersion >= 2,
+            self::DescribeLogDirs => $apiVersion >= 2,
+            self::SaslAuthenticate => $apiVersion >= 2,
+            self::CreatePartitions => $apiVersion >= 2,
+            self::CreateDelegationToken => $apiVersion >= 2,
+            self::RenewDelegationToken => $apiVersion >= 2,
+            self::ExpireDelegationToken => $apiVersion >= 2,
+            self::DescribeDelegationToken => $apiVersion >= 2,
+            self::DeleteGroups => $apiVersion >= 2,
+            self::ElectLeaders => $apiVersion >= 2,
+            self::IncrementalAlterConfigs => $apiVersion >= 1,
+            self::AlterPartitionReassignments => $apiVersion >= 0,
+            self::ListPartitionReassignments => $apiVersion >= 0,
+            self::OffsetDelete => false,
+            self::DescribeClientQuotas => $apiVersion >= 1,
+            self::AlterClientQuotas => $apiVersion >= 1,
+            self::DescribeUserScramCredentials => $apiVersion >= 0,
+            self::AlterUserScramCredentials => $apiVersion >= 0,
+            self::Vote => $apiVersion >= 0,
+            self::BeginQuorumEpoch => $apiVersion >= 1,
+            self::EndQuorumEpoch => $apiVersion >= 1,
+            self::DescribeQuorum => $apiVersion >= 0,
+            self::AlterPartition => $apiVersion >= 0,
+            self::UpdateFeatures => $apiVersion >= 0,
+            self::Envelope => $apiVersion >= 0,
+            self::FetchSnapshot => $apiVersion >= 0,
+            self::DescribeCluster => $apiVersion >= 0,
+            self::DescribeProducers => $apiVersion >= 0,
+            self::BrokerRegistration => $apiVersion >= 0,
+            self::BrokerHeartbeat => $apiVersion >= 0,
+            self::UnregisterBroker => $apiVersion >= 0,
+            self::DescribeTransactions => $apiVersion >= 0,
+            self::ListTransactions => $apiVersion >= 0,
+            self::AllocateProducerIds => $apiVersion >= 0,
+            self::ConsumerGroupHeartbeat => $apiVersion >= 0,
+            self::ConsumerGroupDescribe => $apiVersion >= 0,
+            self::ControllerRegistration => $apiVersion >= 0,
+            self::GetTelemetrySubscriptions => $apiVersion >= 0,
+            self::PushTelemetry => $apiVersion >= 0,
+            self::AssignReplicasToDirs => $apiVersion >= 0,
+            self::ListConfigResources => $apiVersion >= 0,
+            self::DescribeTopicPartitions => $apiVersion >= 0,
+            self::ShareGroupHeartbeat => $apiVersion >= 0,
+            self::ShareGroupDescribe => $apiVersion >= 0,
+            self::ShareFetch => $apiVersion >= 0,
+            self::ShareAcknowledge => $apiVersion >= 0,
+            self::AddRaftVoter => $apiVersion >= 0,
+            self::RemoveRaftVoter => $apiVersion >= 0,
+            self::UpdateRaftVoter => $apiVersion >= 0,
+            self::InitializeShareGroupState => $apiVersion >= 0,
+            self::ReadShareGroupState => $apiVersion >= 0,
+            self::WriteShareGroupState => $apiVersion >= 0,
+            self::DeleteShareGroupState => $apiVersion >= 0,
+            self::ReadShareGroupStateSummary => $apiVersion >= 0,
+            self::StreamsGroupHeartbeat => $apiVersion >= 0,
+            self::StreamsGroupDescribe => $apiVersion >= 0,
+            self::DescribeShareGroupOffsets => $apiVersion >= 0,
+            self::AlterShareGroupOffsets => $apiVersion >= 0,
+            self::DeleteShareGroupOffsets => $apiVersion >= 0,
+        };
+    }
+
+    /**
+     * @return non-negative-int
+     */
+    public function requestHeaderVersion(int $apiVersion): int
+    {
+        return $this->isFlexibleVersion($apiVersion) ? 2 : 1;
+    }
+
+    /**
+     * @return non-negative-int
+     */
+    public function responseHeaderVersion(int $apiVersion): int
+    {
+        return match ($this) {
+            self::ApiVersions => 0,
+            default => $this->isFlexibleVersion($apiVersion) ? 1 : 0,
+        };
+    }
 }

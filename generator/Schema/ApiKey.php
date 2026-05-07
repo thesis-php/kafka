@@ -20,5 +20,6 @@ final readonly class ApiKey
         public int $value,
         public int $min,
         public int $max,
+        public VersionRange $flexibleVersions = new VersionRange(),
     ) {}
 }

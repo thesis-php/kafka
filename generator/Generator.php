@@ -93,6 +93,7 @@ final readonly class Generator
                         value: $message->apiKey,
                         min: $message->validVersions->min,
                         max: $message->validVersions->max,
+                        flexibleVersions: $message->flexibleVersions,
                     ));
                 }
             } elseif ($message->type === Schema\Type::Response) {
@@ -256,6 +257,83 @@ final readonly class Generator
                     ),
                 ),
             ));
+
+        $enum
+            ->addMethod('isFlexibleVersion')
+            ->setPublic()
+            ->setReturnType('bool')
+            ->setParameters([
+                new Parameter('apiVersion')->setType('int'),
+            ])
+            ->setBody(Ast::body(
+                Ast::return(
+                    Ast::match(
+                        Ast::this(),
+                        ...array_map(
+                            static fn(Schema\ApiKey $key) => Ast::arm(
+                                Ast::classConst('self', $key->name),
+                                self::versionContainsExpr($key->flexibleVersions, Ast::var('apiVersion')),
+                            ),
+                            $keys->keys,
+                        ),
+                    ),
+                ),
+            ));
+
+        $enum
+            ->addMethod('requestHeaderVersion')
+            ->setPublic()
+            ->setReturnType('int')
+            ->setParameters([
+                new Parameter('apiVersion')->setType('int'),
+            ])
+            ->setBody(Ast::body(
+                Ast::return(
+                    Ast::ternary(
+                        Ast::call(Ast::this(), 'isFlexibleVersion', Ast::var('apiVersion')),
+                        Ast::int(2),
+                        Ast::int(1),
+                    ),
+                ),
+            ))
+            ->addComment('@return non-negative-int');
+
+        $responseHeaderVersion = Ast::ternary(
+            Ast::call(Ast::this(), 'isFlexibleVersion', Ast::var('apiVersion')),
+            Ast::int(1),
+            Ast::int(0),
+        );
+
+        foreach ($keys->keys as $key) {
+            if ($key->name !== 'ApiVersions') {
+                continue;
+            }
+
+            $responseHeaderVersion = Ast::match(
+                Ast::this(),
+                Ast::arm(
+                    Ast::classConst('self', 'ApiVersions'),
+                    Ast::int(0),
+                ),
+                Ast::defaultArm($responseHeaderVersion),
+            );
+
+            break;
+        }
+
+        $enum
+            ->addMethod('responseHeaderVersion')
+            ->setPublic()
+            ->setReturnType('int')
+            ->setParameters([
+                new Parameter('apiVersion')->setType('int'),
+            ])
+            ->setBody(Ast::body(
+                Ast::return(
+                    $responseHeaderVersion,
+                ),
+            ))
+            ->addComment('@return non-negative-int');
 
         $namespace = $this->generatedNs
             ->new()
@@ -1415,6 +1493,24 @@ final readonly class Generator
         }
 
         return $parts === [] ? Ast::bool(true) : Ast::and(...$parts);
+    }
+
+    private static function versionContainsExpr(Schema\VersionRange $range, Expr $version): Expr
+    {
+        if ($range->isNone()) {
+            return Ast::bool(false);
+        }
+
+        $expr = Ast::ge($version, Ast::int($range->min ?? 0));
+
+        if ($range->max === null) {
+            return $expr;
+        }
+
+        return Ast::and(
+            $expr,
+            Ast::le($version, Ast::int($range->max)),
+        );
     }
 
     private static function nonNullGuard(string $fieldName, Expr $accessor): Stmt
