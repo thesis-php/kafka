@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Generator;
 
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\TestCase;
+use Testo\Assert;
+use Testo\Test;
 use Thesis\Kafka\Generator\Generator\NamespaceGenerator;
 use Thesis\Kafka\Generator\SchemaSource\StaticSource;
 use Thesis\Kafka\Generator\Writer\InMemoryWriter;
 
-#[CoversClass(Generator::class)]
-final class GeneratorTest extends TestCase
+final class GeneratorTest
 {
-    public function testGeneratesHeaderWithFieldLevelFlexibleOverride(): void
+    #[Test]
+    public function generatesHeaderWithFieldLevelFlexibleOverride(): void
     {
         self::assertSameContent(
             <<<'JSON'
@@ -102,7 +102,8 @@ final class GeneratorTest extends TestCase
         );
     }
 
-    public function testGeneratesRequestWithInlineAndCommonStructs(): void
+    #[Test]
+    public function generatesRequestWithInlineAndCommonStructs(): void
     {
         self::assertSameContent(
             <<<'JSON'
@@ -364,7 +365,8 @@ final class GeneratorTest extends TestCase
         );
     }
 
-    public function testGeneratesVersionGatedNullableScalar(): void
+    #[Test]
+    public function generatesVersionGatedNullableScalar(): void
     {
         self::assertSameContent(
             <<<'JSON'
@@ -439,7 +441,8 @@ final class GeneratorTest extends TestCase
         );
     }
 
-    public function testGeneratesNullableArraysAndRecords(): void
+    #[Test]
+    public function generatesNullableArraysAndRecords(): void
     {
         self::assertSameContent(
             <<<'JSON'
@@ -513,7 +516,8 @@ final class GeneratorTest extends TestCase
         );
     }
 
-    public function testGeneratesDefaultsForDifferentScalarTypes(): void
+    #[Test]
+    public function generatesDefaultsForDifferentScalarTypes(): void
     {
         self::assertSameContent(
             <<<'JSON'
@@ -606,7 +610,8 @@ final class GeneratorTest extends TestCase
         );
     }
 
-    public function testGeneratesNestedInlineStructs(): void
+    #[Test]
+    public function generatesNestedInlineStructs(): void
     {
         self::assertSameContent(
             <<<'JSON'
@@ -725,7 +730,8 @@ final class GeneratorTest extends TestCase
         );
     }
 
-    public function testGeneratesResponseWithKnownTaggedFieldsAndDefaults(): void
+    #[Test]
+    public function generatesResponseWithKnownTaggedFieldsAndDefaults(): void
     {
         self::assertSameContent(
             <<<'JSON'
@@ -847,7 +853,7 @@ final class GeneratorTest extends TestCase
         $generator->generate(new StaticSource([$json]));
 
         foreach ($classes as $path => $class) {
-            self::assertSame($class, $writer->get($path));
+            Assert::same($class, $writer->get($path));
         }
     }
 }
