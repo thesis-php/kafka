@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\UnknownTags;
 use Thesis\Kafka\Protocol\Writer;
 
@@ -15,11 +16,11 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class GetTelemetrySubscriptionsRequest implements Request
 {
     /**
-     * @param string $clientInstanceId Unique id for this client instance, must be set to 0 on the first request.
+     * @param UuidInterface $clientInstanceId Unique id for this client instance, must be set to 0 on the first request.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $clientInstanceId,
+        public UuidInterface $clientInstanceId,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
 

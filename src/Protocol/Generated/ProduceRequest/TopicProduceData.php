@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\ProduceRequest;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,13 +20,13 @@ final readonly class TopicProduceData implements Encodable, Decodable
 {
     /**
      * @param string $name The topic name.
-     * @param string $topicId The unique topic ID
+     * @param UuidInterface $topicId The unique topic ID
      * @param list<TopicProduceData\PartitionProduceData> $partitionData Each partition to produce to.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public string $name,
-        public string $topicId,
+        public UuidInterface $topicId,
         public array $partitionData,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
@@ -68,7 +70,7 @@ final readonly class TopicProduceData implements Encodable, Decodable
                 $name = $reader->readString();
             }
         }
-        $topicId = '';
+        $topicId = Uuid::fromString(Uuid::NIL);
         if ($version >= 13) {
             $topicId = $reader->readUuid();
         }

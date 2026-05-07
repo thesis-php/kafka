@@ -35,7 +35,9 @@ final readonly class FilesystemWriter implements Writer
             ->setStrictTypes()
             ->add($namespace);
 
-        $contents = $this->printer->printFile($file);
+        $contents = $this->printer
+            ->setTypeResolving(true)
+            ->printFile($file);
 
         file_put_contents($path, $contents);
     }

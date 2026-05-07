@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\UnknownTags;
 use Thesis\Kafka\Protocol\Writer;
 
@@ -15,7 +16,7 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class PushTelemetryRequest implements Request
 {
     /**
-     * @param string $clientInstanceId Unique id for this client instance.
+     * @param UuidInterface $clientInstanceId Unique id for this client instance.
      * @param int $subscriptionId Unique identifier for the current subscription.
      * @param bool $terminating Client is terminating the connection.
      * @param int $compressionType Compression codec used to compress the metrics.
@@ -23,7 +24,7 @@ final readonly class PushTelemetryRequest implements Request
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $clientInstanceId,
+        public UuidInterface $clientInstanceId,
         public int $subscriptionId,
         public bool $terminating,
         public int $compressionType,

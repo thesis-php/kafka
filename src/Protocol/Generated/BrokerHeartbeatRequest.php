@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\UnknownTags;
 use Thesis\Kafka\Protocol\Writer;
 
@@ -20,7 +21,7 @@ final readonly class BrokerHeartbeatRequest implements Request
      * @param int $currentMetadataOffset The highest metadata offset which the broker has reached.
      * @param bool $wantFence True if the broker wants to be fenced, false otherwise.
      * @param bool $wantShutDown True if the broker wants to be shut down, false otherwise.
-     * @param list<string> $offlineLogDirs Log directories that failed and went offline.
+     * @param list<UuidInterface> $offlineLogDirs Log directories that failed and went offline.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(

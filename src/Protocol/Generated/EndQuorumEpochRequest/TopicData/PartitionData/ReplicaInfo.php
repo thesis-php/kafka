@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\EndQuorumEpochRequest\TopicData\PartitionData;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,12 +19,12 @@ final readonly class ReplicaInfo implements Encodable, Decodable
 {
     /**
      * @param int $candidateId The ID of the candidate replica.
-     * @param string $candidateDirectoryId The directory ID of the candidate replica.
+     * @param UuidInterface $candidateDirectoryId The directory ID of the candidate replica.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public int $candidateId,
-        public string $candidateDirectoryId,
+        public UuidInterface $candidateDirectoryId,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\UnknownTags;
 use Thesis\Kafka\Protocol\Writer;
 
@@ -17,19 +18,19 @@ final readonly class BrokerRegistrationRequest implements Request
     /**
      * @param int $brokerId The broker ID.
      * @param string $clusterId The cluster id of the broker process.
-     * @param string $incarnationId The incarnation id of the broker process.
+     * @param UuidInterface $incarnationId The incarnation id of the broker process.
      * @param list<BrokerRegistrationRequest\Listener> $listeners The listeners of this broker.
      * @param list<BrokerRegistrationRequest\Feature> $features The features on this broker. Note: in v0-v3, features with MinSupportedVersion = 0 are omitted.
      * @param ?string $rack The rack which this broker is in.
      * @param bool $isMigratingZkBroker If the required configurations for ZK migration are present, this value is set to true.
-     * @param list<string> $logDirs Log directories configured in this broker which are available.
+     * @param list<UuidInterface> $logDirs Log directories configured in this broker which are available.
      * @param int $previousBrokerEpoch The epoch before a clean shutdown.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public int $brokerId,
         public string $clusterId,
-        public string $incarnationId,
+        public UuidInterface $incarnationId,
         public array $listeners,
         public array $features,
         public ?string $rack,

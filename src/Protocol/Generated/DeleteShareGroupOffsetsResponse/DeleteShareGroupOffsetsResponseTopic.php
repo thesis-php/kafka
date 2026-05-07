@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\DeleteShareGroupOffsetsResponse;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,14 +19,14 @@ final readonly class DeleteShareGroupOffsetsResponseTopic implements Encodable, 
 {
     /**
      * @param string $topicName The topic name.
-     * @param string $topicId The unique topic ID.
+     * @param UuidInterface $topicId The unique topic ID.
      * @param int $errorCode The topic-level error code, or 0 if there was no error.
      * @param ?string $errorMessage The topic-level error message, or null if there was no error.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public string $topicName,
-        public string $topicId,
+        public UuidInterface $topicId,
         public int $errorCode,
         public ?string $errorMessage,
         public UnknownTags $unknownTags = new UnknownTags(),

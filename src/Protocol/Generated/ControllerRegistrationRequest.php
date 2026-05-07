@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\UnknownTags;
 use Thesis\Kafka\Protocol\Writer;
 
@@ -16,7 +17,7 @@ final readonly class ControllerRegistrationRequest implements Request
 {
     /**
      * @param int $controllerId The ID of the controller to register.
-     * @param string $incarnationId The controller incarnation ID, which is unique to each process run.
+     * @param UuidInterface $incarnationId The controller incarnation ID, which is unique to each process run.
      * @param bool $zkMigrationReady Set if the required configurations for ZK migration are present.
      * @param list<ControllerRegistrationRequest\Listener> $listeners The listeners of this controller.
      * @param list<ControllerRegistrationRequest\Feature> $features The features on this controller.
@@ -24,7 +25,7 @@ final readonly class ControllerRegistrationRequest implements Request
      */
     public function __construct(
         public int $controllerId,
-        public string $incarnationId,
+        public UuidInterface $incarnationId,
         public bool $zkMigrationReady,
         public array $listeners,
         public array $features,

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\BeginQuorumEpochRequest\TopicData;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,14 +20,14 @@ final readonly class PartitionData implements Encodable, Decodable
 {
     /**
      * @param int $partitionIndex The partition index.
-     * @param string $voterDirectoryId The directory id of the receiving replica.
+     * @param UuidInterface $voterDirectoryId The directory id of the receiving replica.
      * @param int $leaderId The ID of the newly elected leader.
      * @param int $leaderEpoch The epoch of the newly elected leader.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public int $partitionIndex,
-        public string $voterDirectoryId,
+        public UuidInterface $voterDirectoryId,
         public int $leaderId,
         public int $leaderEpoch,
         public UnknownTags $unknownTags = new UnknownTags(),
@@ -51,7 +53,7 @@ final readonly class PartitionData implements Encodable, Decodable
     {
         $flexible = $version >= 1;
         $partitionIndex = $reader->readInt32();
-        $voterDirectoryId = '';
+        $voterDirectoryId = Uuid::fromString(Uuid::NIL);
         if ($version >= 1) {
             $voterDirectoryId = $reader->readUuid();
         }

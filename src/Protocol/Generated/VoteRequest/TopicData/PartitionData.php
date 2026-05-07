@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\VoteRequest\TopicData;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -20,8 +22,8 @@ final readonly class PartitionData implements Encodable, Decodable
      * @param int $partitionIndex The partition index.
      * @param int $replicaEpoch The epoch of the voter sending the request
      * @param int $replicaId The replica id of the voter sending the request
-     * @param string $replicaDirectoryId The directory id of the voter sending the request
-     * @param string $voterDirectoryId The directory id of the voter receiving the request
+     * @param UuidInterface $replicaDirectoryId The directory id of the voter sending the request
+     * @param UuidInterface $voterDirectoryId The directory id of the voter receiving the request
      * @param int $lastOffsetEpoch The epoch of the last record written to the metadata log.
      * @param int $lastOffset The log end offset of the metadata log of the voter sending the request.
      * @param bool $preVote Whether the request is a PreVote request (not persisted) or not.
@@ -31,8 +33,8 @@ final readonly class PartitionData implements Encodable, Decodable
         public int $partitionIndex,
         public int $replicaEpoch,
         public int $replicaId,
-        public string $replicaDirectoryId,
-        public string $voterDirectoryId,
+        public UuidInterface $replicaDirectoryId,
+        public UuidInterface $voterDirectoryId,
         public int $lastOffsetEpoch,
         public int $lastOffset,
         public bool $preVote,
@@ -65,11 +67,11 @@ final readonly class PartitionData implements Encodable, Decodable
         $partitionIndex = $reader->readInt32();
         $replicaEpoch = $reader->readInt32();
         $replicaId = $reader->readInt32();
-        $replicaDirectoryId = '';
+        $replicaDirectoryId = Uuid::fromString(Uuid::NIL);
         if ($version >= 1) {
             $replicaDirectoryId = $reader->readUuid();
         }
-        $voterDirectoryId = '';
+        $voterDirectoryId = Uuid::fromString(Uuid::NIL);
         if ($version >= 1) {
             $voterDirectoryId = $reader->readUuid();
         }

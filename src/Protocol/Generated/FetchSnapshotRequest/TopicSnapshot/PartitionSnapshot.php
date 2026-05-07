@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\FetchSnapshotRequest\TopicSnapshot;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -21,7 +23,7 @@ final readonly class PartitionSnapshot implements Encodable, Decodable
      * @param int $currentLeaderEpoch The current leader epoch of the partition, -1 for unknown leader epoch.
      * @param PartitionSnapshot\SnapshotId $snapshotId The snapshot endOffset and epoch to fetch.
      * @param int $position The byte position within the snapshot to start fetching from.
-     * @param string $replicaDirectoryId The directory id of the follower fetching.
+     * @param UuidInterface $replicaDirectoryId The directory id of the follower fetching.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
@@ -29,7 +31,7 @@ final readonly class PartitionSnapshot implements Encodable, Decodable
         public int $currentLeaderEpoch,
         public PartitionSnapshot\SnapshotId $snapshotId,
         public int $position,
-        public string $replicaDirectoryId,
+        public UuidInterface $replicaDirectoryId,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
 
@@ -66,10 +68,10 @@ final readonly class PartitionSnapshot implements Encodable, Decodable
                 $replicaDirectoryId = $tagReader->readUuid();
                 unset($unknownTags[0]);
             } else {
-                $replicaDirectoryId = '';
+                $replicaDirectoryId = Uuid::fromString(Uuid::NIL);
             }
         } else {
-            $replicaDirectoryId = '';
+            $replicaDirectoryId = Uuid::fromString(Uuid::NIL);
         }
         return new self($partition, $currentLeaderEpoch, $snapshotId, $position, $replicaDirectoryId, $unknownTags);
     }

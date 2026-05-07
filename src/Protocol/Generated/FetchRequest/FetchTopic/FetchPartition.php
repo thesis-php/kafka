@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\FetchRequest\FetchTopic;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -23,7 +25,7 @@ final readonly class FetchPartition implements Encodable, Decodable
      * @param int $lastFetchedEpoch The epoch of the last fetched record or -1 if there is none.
      * @param int $logStartOffset The earliest available offset of the follower replica.  The field is only used when the request is sent by the follower.
      * @param int $partitionMaxBytes The maximum bytes to fetch from this partition.  See KIP-74 for cases where this limit may not be honored.
-     * @param string $replicaDirectoryId The directory id of the follower fetching.
+     * @param UuidInterface $replicaDirectoryId The directory id of the follower fetching.
      * @param int $highWatermark The high-watermark known by the replica. -1 if the high-watermark is not known and 9223372036854775807 if the feature is not supported.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
@@ -34,7 +36,7 @@ final readonly class FetchPartition implements Encodable, Decodable
         public int $lastFetchedEpoch,
         public int $logStartOffset,
         public int $partitionMaxBytes,
-        public string $replicaDirectoryId,
+        public UuidInterface $replicaDirectoryId,
         public int $highWatermark,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
@@ -104,10 +106,10 @@ final readonly class FetchPartition implements Encodable, Decodable
                     $replicaDirectoryId = $tagReader->readUuid();
                     unset($unknownTags[0]);
                 } else {
-                    $replicaDirectoryId = '';
+                    $replicaDirectoryId = Uuid::fromString(Uuid::NIL);
                 }
             } else {
-                $replicaDirectoryId = '';
+                $replicaDirectoryId = Uuid::fromString(Uuid::NIL);
             }
             if ($version >= 18) {
                 if (isset($unknownTags[1])) {
@@ -122,7 +124,7 @@ final readonly class FetchPartition implements Encodable, Decodable
             }
         } else {
             $unknownTags = new UnknownTags();
-            $replicaDirectoryId = '';
+            $replicaDirectoryId = Uuid::fromString(Uuid::NIL);
             $highWatermark = 9223372036854775807;
         }
         return new self($partition, $currentLeaderEpoch, $fetchOffset, $lastFetchedEpoch, $logStartOffset, $partitionMaxBytes, $replicaDirectoryId, $highWatermark, $unknownTags);

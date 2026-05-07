@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\ShareGroupDescribeResponse;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -17,13 +18,13 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class TopicPartitions implements Encodable, Decodable
 {
     /**
-     * @param string $topicId The topic ID.
+     * @param UuidInterface $topicId The topic ID.
      * @param string $topicName The topic name.
      * @param list<int> $partitions The partitions.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $topicId,
+        public UuidInterface $topicId,
         public string $topicName,
         public array $partitions,
         public UnknownTags $unknownTags = new UnknownTags(),

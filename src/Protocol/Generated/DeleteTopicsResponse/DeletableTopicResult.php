@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\DeleteTopicsResponse;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,14 +20,14 @@ final readonly class DeletableTopicResult implements Encodable, Decodable
 {
     /**
      * @param ?string $name The topic name.
-     * @param string $topicId The unique topic ID.
+     * @param UuidInterface $topicId The unique topic ID.
      * @param int $errorCode The deletion error, or 0 if the deletion succeeded.
      * @param ?string $errorMessage The error message, or null if there was no error.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public ?string $name,
-        public string $topicId,
+        public UuidInterface $topicId,
         public int $errorCode,
         public ?string $errorMessage,
         public UnknownTags $unknownTags = new UnknownTags(),
@@ -78,7 +80,7 @@ final readonly class DeletableTopicResult implements Encodable, Decodable
         } else {
             $name = $reader->readString();
         }
-        $topicId = '';
+        $topicId = Uuid::fromString(Uuid::NIL);
         if ($version >= 6) {
             $topicId = $reader->readUuid();
         }

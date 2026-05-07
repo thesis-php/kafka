@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\DescribeTopicPartitionsResponse;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -19,7 +20,7 @@ final readonly class DescribeTopicPartitionsResponseTopic implements Encodable, 
     /**
      * @param int $errorCode The topic error, or 0 if there was no error.
      * @param ?string $name The topic name.
-     * @param string $topicId The topic id.
+     * @param UuidInterface $topicId The topic id.
      * @param bool $isInternal True if the topic is internal.
      * @param list<DescribeTopicPartitionsResponseTopic\DescribeTopicPartitionsResponsePartition> $partitions Each partition in the topic.
      * @param int $topicAuthorizedOperations 32-bit bitfield to represent authorized operations for this topic.
@@ -28,7 +29,7 @@ final readonly class DescribeTopicPartitionsResponseTopic implements Encodable, 
     public function __construct(
         public int $errorCode,
         public ?string $name,
-        public string $topicId,
+        public UuidInterface $topicId,
         public bool $isInternal,
         public array $partitions,
         public int $topicAuthorizedOperations,

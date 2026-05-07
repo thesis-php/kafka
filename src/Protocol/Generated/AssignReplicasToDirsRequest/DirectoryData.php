@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\AssignReplicasToDirsRequest;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -17,12 +18,12 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class DirectoryData implements Encodable, Decodable
 {
     /**
-     * @param string $id The ID of the directory.
+     * @param UuidInterface $id The ID of the directory.
      * @param list<DirectoryData\TopicData> $topics The topics assigned to the directory.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $id,
+        public UuidInterface $id,
         public array $topics,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}

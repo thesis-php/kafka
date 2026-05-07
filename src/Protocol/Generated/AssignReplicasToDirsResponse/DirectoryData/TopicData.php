@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\AssignReplicasToDirsResponse\DirectoryData;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -17,12 +18,12 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class TopicData implements Encodable, Decodable
 {
     /**
-     * @param string $topicId The ID of the assigned topic.
+     * @param UuidInterface $topicId The ID of the assigned topic.
      * @param list<TopicData\PartitionData> $partitions The list of assigned partitions.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $topicId,
+        public UuidInterface $topicId,
         public array $partitions,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}

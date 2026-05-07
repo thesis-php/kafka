@@ -17,6 +17,8 @@ use Nette\PhpGenerator\Parameter;
 use Nette\PhpGenerator\PhpNamespace;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Stmt;
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Generator\Generator\Ast;
 
 /**
@@ -201,6 +203,10 @@ final readonly class Generator
                 ...(!$header->flexibleVersions->isNone() ? [$this->protocolNs->fqcn('UnknownTags')] : []),
             ],
         );
+
+        if ($this->usesUuidFactory($header->fields, $header->validVersions)) {
+            $namespace->addUse(Uuid::class);
+        }
 
         $class = $this->generatedClass(
             $header->name,
@@ -403,6 +409,10 @@ final readonly class Generator
             ],
         );
 
+        if ($this->usesUuidFactory($response->fields, $response->validVersions)) {
+            $namespace->addUse(Uuid::class);
+        }
+
         $class = $this->generatedClass(
             $response->name,
             [
@@ -489,6 +499,10 @@ final readonly class Generator
             ],
         );
 
+        if ($this->usesUuidFactory($fields, $structVersions)) {
+            $namespace->addUse(Uuid::class);
+        }
+
         $structParts = [...$namespaceParts, $structName];
 
         $class = $this->generatedClass(
@@ -522,6 +536,10 @@ final readonly class Generator
         array $containerParts,
         Schema\VersionRange $flex,
     ): Method {
+        if ($this->usesUuid($fields)) {
+            $namespace->addUse(UuidInterface::class);
+        }
+
         $constructor = new Method('__construct')->setPublic();
 
         $docLines = [];
@@ -738,7 +756,8 @@ final readonly class Generator
     private function docTypeOf(Schema\Field $field, ?string $structRef): string
     {
         if (str_starts_with($field->type, '[]')) {
-            $elementDoc = $structRef ?? self::scalarToPhpType(substr($field->type, 2));
+            $elementType = substr($field->type, 2);
+            $elementDoc = $structRef ?? ($elementType === 'uuid' ? 'UuidInterface' : self::scalarToPhpType($elementType));
 
             return "list<{$elementDoc}>";
         }
@@ -747,7 +766,9 @@ final readonly class Generator
             return $structRef;
         }
 
-        return self::scalarToPhpType($field->type);
+        return $field->type === 'uuid'
+            ? 'UuidInterface'
+            : self::scalarToPhpType($field->type);
     }
 
     /**
@@ -1409,8 +1430,12 @@ final readonly class Generator
             'bool' => Ast::bool(false),
             'string',
             'bytes',
-            'uuid',
             'records' => Ast::str(''),
+            'uuid' => Ast::staticCall(
+                'Uuid',
+                'fromString',
+                Ast::classConst('Uuid', 'NIL'),
+            ),
             default => Ast::throw(
                 Ast::new(
                     '\LogicException',
@@ -1457,8 +1482,16 @@ final readonly class Generator
                 return Ast::int((int) hexdec(substr($default, 2)));
             }
 
-            if (\in_array($field->type, ['string', 'bytes', 'uuid', 'records'], true)) {
+            if (\in_array($field->type, ['string', 'bytes', 'records'], true)) {
                 return Ast::str($default);
+            }
+
+            if ($field->type === 'uuid') {
+                return Ast::staticCall(
+                    'Uuid',
+                    'fromString',
+                    Ast::str($default),
+                );
             }
         }
 
@@ -1607,9 +1640,38 @@ final readonly class Generator
             'uint32' => 'int',
             'float64' => 'float',
             'bool' => 'bool',
-            'uuid' => 'string',
+            'uuid' => UuidInterface::class,
             default => throw new \LogicException("Not a scalar primitive: {$type}."),
         };
+    }
+
+    /**
+     * @param list<Schema\Field> $fields
+     */
+    private function usesUuid(array $fields): bool
+    {
+        return array_any(
+            $fields,
+            static fn(Schema\Field $field) => \in_array($field->type, ['uuid', '[]uuid'], true),
+        );
+    }
+
+    /**
+     * @param list<Schema\Field> $fields
+     */
+    private function usesUuidFactory(array $fields, Schema\VersionRange $containerVersions): bool
+    {
+        foreach ($fields as $field) {
+            if ($field->type !== 'uuid') {
+                continue;
+            }
+
+            if ($field->default !== null || !$field->versions->covers($containerVersions)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\InitializeShareGroupStateRequest;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -17,12 +18,12 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class InitializeStateData implements Encodable, Decodable
 {
     /**
-     * @param string $topicId The topic identifier.
+     * @param UuidInterface $topicId The topic identifier.
      * @param list<InitializeStateData\PartitionData> $partitions The data for the partitions.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $topicId,
+        public UuidInterface $topicId,
         public array $partitions,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}

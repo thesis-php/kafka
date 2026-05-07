@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\ShareAcknowledgeRequest;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -17,12 +18,12 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class AcknowledgeTopic implements Encodable, Decodable
 {
     /**
-     * @param string $topicId The unique topic ID.
+     * @param UuidInterface $topicId The unique topic ID.
      * @param list<AcknowledgeTopic\AcknowledgePartition> $partitions The partitions containing records to acknowledge.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $topicId,
+        public UuidInterface $topicId,
         public array $partitions,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}

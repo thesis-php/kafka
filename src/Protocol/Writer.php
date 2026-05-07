@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Protocol;
 
 use BcMath\Number;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Endian;
 use Thesis\Varint;
 
@@ -150,16 +151,9 @@ final class Writer implements
         $this->writeCompactBytes($value);
     }
 
-    public function writeUuid(string $value): void
+    public function writeUuid(UuidInterface $value): void
     {
-        if (\strlen($value) !== 16) {
-            throw new \UnexpectedValueException(\sprintf(
-                'UUID must be exactly 16 bytes, got %d',
-                \strlen($value),
-            ));
-        }
-
-        $this->buffer .= $value;
+        $this->buffer .= $value->getBytes();
     }
 
     public function writeArrayLength(int $count): void

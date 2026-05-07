@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\CreateTopicsResponse;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,7 +20,7 @@ final readonly class CreatableTopicResult implements Encodable, Decodable
 {
     /**
      * @param string $name The topic name.
-     * @param string $topicId The unique topic ID.
+     * @param UuidInterface $topicId The unique topic ID.
      * @param int $errorCode The error code, or 0 if there was no error.
      * @param ?string $errorMessage The error message, or null if there was no error.
      * @param int $topicConfigErrorCode Optional topic config error returned if configs are not returned in the response.
@@ -29,7 +31,7 @@ final readonly class CreatableTopicResult implements Encodable, Decodable
      */
     public function __construct(
         public string $name,
-        public string $topicId,
+        public UuidInterface $topicId,
         public int $errorCode,
         public ?string $errorMessage,
         public int $topicConfigErrorCode,
@@ -94,7 +96,7 @@ final readonly class CreatableTopicResult implements Encodable, Decodable
         } else {
             $name = $reader->readString();
         }
-        $topicId = '';
+        $topicId = Uuid::fromString(Uuid::NIL);
         if ($version >= 7) {
             $topicId = $reader->readUuid();
         }

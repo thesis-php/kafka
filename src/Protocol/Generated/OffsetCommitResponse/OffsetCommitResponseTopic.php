@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\OffsetCommitResponse;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,13 +20,13 @@ final readonly class OffsetCommitResponseTopic implements Encodable, Decodable
 {
     /**
      * @param string $name The topic name.
-     * @param string $topicId The topic ID.
+     * @param UuidInterface $topicId The topic ID.
      * @param list<OffsetCommitResponseTopic\OffsetCommitResponsePartition> $partitions The responses for each partition in the topic.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public string $name,
-        public string $topicId,
+        public UuidInterface $topicId,
         public array $partitions,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
@@ -68,7 +70,7 @@ final readonly class OffsetCommitResponseTopic implements Encodable, Decodable
                 $name = $reader->readString();
             }
         }
-        $topicId = '';
+        $topicId = Uuid::fromString(Uuid::NIL);
         if ($version >= 10) {
             $topicId = $reader->readUuid();
         }

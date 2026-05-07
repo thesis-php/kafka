@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\DescribeShareGroupOffsetsResponse\DescribeShareGroupOffsetsResponseGroup;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,13 +19,13 @@ final readonly class DescribeShareGroupOffsetsResponseTopic implements Encodable
 {
     /**
      * @param string $topicName The topic name.
-     * @param string $topicId The unique topic ID.
+     * @param UuidInterface $topicId The unique topic ID.
      * @param list<DescribeShareGroupOffsetsResponseTopic\DescribeShareGroupOffsetsResponsePartition> $partitions
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public string $topicName,
-        public string $topicId,
+        public UuidInterface $topicId,
         public array $partitions,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}

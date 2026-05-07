@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\MetadataResponse;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -19,7 +21,7 @@ final readonly class MetadataResponseTopic implements Encodable, Decodable
     /**
      * @param int $errorCode The topic error, or 0 if there was no error.
      * @param ?string $name The topic name. Null for non-existing topics queried by ID. This is never null when ErrorCode is zero. One of Name and TopicId is always populated.
-     * @param string $topicId The topic id. Zero for non-existing topics queried by name. This is never zero when ErrorCode is zero. One of Name and TopicId is always populated.
+     * @param UuidInterface $topicId The topic id. Zero for non-existing topics queried by name. This is never zero when ErrorCode is zero. One of Name and TopicId is always populated.
      * @param bool $isInternal True if the topic is internal.
      * @param list<MetadataResponseTopic\MetadataResponsePartition> $partitions Each partition in the topic.
      * @param int $topicAuthorizedOperations 32-bit bitfield to represent authorized operations for this topic.
@@ -28,7 +30,7 @@ final readonly class MetadataResponseTopic implements Encodable, Decodable
     public function __construct(
         public int $errorCode,
         public ?string $name,
-        public string $topicId,
+        public UuidInterface $topicId,
         public bool $isInternal,
         public array $partitions,
         public int $topicAuthorizedOperations,
@@ -94,7 +96,7 @@ final readonly class MetadataResponseTopic implements Encodable, Decodable
         } else {
             $name = $reader->readString();
         }
-        $topicId = '';
+        $topicId = Uuid::fromString(Uuid::NIL);
         if ($version >= 10) {
             $topicId = $reader->readUuid();
         }

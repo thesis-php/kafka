@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Reader;
 use Thesis\Kafka\Protocol\UnknownTags;
 
@@ -16,7 +17,7 @@ final readonly class GetTelemetrySubscriptionsResponse implements Response
     /**
      * @param int $throttleTimeMs The duration in milliseconds for which the request was throttled due to a quota violation, or zero if the request did not violate any quota.
      * @param int $errorCode The error code, or 0 if there was no error.
-     * @param string $clientInstanceId Assigned client instance id if ClientInstanceId was 0 in the request, else 0.
+     * @param UuidInterface $clientInstanceId Assigned client instance id if ClientInstanceId was 0 in the request, else 0.
      * @param int $subscriptionId Unique identifier for the current subscription set for this client instance.
      * @param list<int> $acceptedCompressionTypes Compression types that broker accepts for the PushTelemetryRequest.
      * @param int $pushIntervalMs Configured push interval, which is the lowest configured interval in the current subscription set.
@@ -28,7 +29,7 @@ final readonly class GetTelemetrySubscriptionsResponse implements Response
     public function __construct(
         public int $throttleTimeMs,
         public int $errorCode,
-        public string $clientInstanceId,
+        public UuidInterface $clientInstanceId,
         public int $subscriptionId,
         public array $acceptedCompressionTypes,
         public int $pushIntervalMs,

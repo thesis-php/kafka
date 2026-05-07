@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\DescribeQuorumResponse;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,7 +20,7 @@ final readonly class ReplicaState implements Encodable, Decodable
 {
     /**
      * @param int $replicaId The ID of the replica.
-     * @param string $replicaDirectoryId The replica directory ID of the replica.
+     * @param UuidInterface $replicaDirectoryId The replica directory ID of the replica.
      * @param int $logEndOffset The last known log end offset of the follower or -1 if it is unknown.
      * @param int $lastFetchTimestamp The last known leader wall clock time time when a follower fetched from the leader. This is reported as -1 both for the current leader or if it is unknown for a voter.
      * @param int $lastCaughtUpTimestamp The leader wall clock append time of the offset for which the follower made the most recent fetch request. This is reported as the current time for the leader and -1 if unknown for a voter.
@@ -26,7 +28,7 @@ final readonly class ReplicaState implements Encodable, Decodable
      */
     public function __construct(
         public int $replicaId,
-        public string $replicaDirectoryId,
+        public UuidInterface $replicaDirectoryId,
         public int $logEndOffset,
         public int $lastFetchTimestamp,
         public int $lastCaughtUpTimestamp,
@@ -54,7 +56,7 @@ final readonly class ReplicaState implements Encodable, Decodable
     public static function decode(Reader $reader, int $version): static
     {
         $replicaId = $reader->readInt32();
-        $replicaDirectoryId = '';
+        $replicaDirectoryId = Uuid::fromString(Uuid::NIL);
         if ($version >= 2) {
             $replicaDirectoryId = $reader->readUuid();
         }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\UnknownTags;
 use Thesis\Kafka\Protocol\Writer;
 
@@ -18,7 +19,7 @@ final readonly class AddRaftVoterRequest implements Request
      * @param ?string $clusterId The cluster id.
      * @param int $timeoutMs The maximum time to wait for the request to complete before returning.
      * @param int $voterId The replica id of the voter getting added to the topic partition.
-     * @param string $voterDirectoryId The directory id of the voter getting added to the topic partition.
+     * @param UuidInterface $voterDirectoryId The directory id of the voter getting added to the topic partition.
      * @param list<AddRaftVoterRequest\Listener> $listeners The endpoints that can be used to communicate with the voter.
      * @param bool $ackWhenCommitted When true, return a response after the new voter set is committed. Otherwise, return after the leader writes the changes locally.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
@@ -27,7 +28,7 @@ final readonly class AddRaftVoterRequest implements Request
         public ?string $clusterId,
         public int $timeoutMs,
         public int $voterId,
-        public string $voterDirectoryId,
+        public UuidInterface $voterDirectoryId,
         public array $listeners,
         public bool $ackWhenCommitted,
         public UnknownTags $unknownTags = new UnknownTags(),

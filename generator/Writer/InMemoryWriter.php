@@ -27,7 +27,9 @@ final class InMemoryWriter implements Writer
             ->setStrictTypes()
             ->add($namespace);
 
-        $this->files["{$file}.php"] = $this->printer->printFile($phpFile);
+        $this->files["{$file}.php"] = $this->printer
+            ->setTypeResolving(true)
+            ->printFile($phpFile);
     }
 
     /**

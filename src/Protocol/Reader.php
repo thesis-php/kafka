@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Endian;
 use Thesis\Varint;
 
@@ -195,9 +197,9 @@ final class Reader
         return $length === 0 ? '' : $this->read($length);
     }
 
-    public function readUuid(): string
+    public function readUuid(): UuidInterface
     {
-        return $this->read(16);
+        return Uuid::fromBytes($this->read(16));
     }
 
     /**

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\AlterPartitionRequest;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -17,12 +19,12 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class TopicData implements Encodable, Decodable
 {
     /**
-     * @param string $topicId The ID of the topic to alter ISRs for.
+     * @param UuidInterface $topicId The ID of the topic to alter ISRs for.
      * @param list<TopicData\PartitionData> $partitions The partitions to alter ISRs for.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $topicId,
+        public UuidInterface $topicId,
         public array $partitions,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
@@ -43,7 +45,7 @@ final readonly class TopicData implements Encodable, Decodable
     #[\Override]
     public static function decode(Reader $reader, int $version): static
     {
-        $topicId = '';
+        $topicId = Uuid::fromString(Uuid::NIL);
         if ($version >= 2) {
             $topicId = $reader->readUuid();
         }

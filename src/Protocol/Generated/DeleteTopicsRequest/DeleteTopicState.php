@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\DeleteTopicsRequest;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -18,12 +19,12 @@ final readonly class DeleteTopicState implements Encodable, Decodable
 {
     /**
      * @param ?string $name The topic name.
-     * @param string $topicId The unique topic ID.
+     * @param UuidInterface $topicId The unique topic ID.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public ?string $name,
-        public string $topicId,
+        public UuidInterface $topicId,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
 

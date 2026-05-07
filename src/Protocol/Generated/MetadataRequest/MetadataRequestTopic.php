@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated\MetadataRequest;
 
+use Ramsey\Uuid\Uuid;
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\Decodable;
 use Thesis\Kafka\Protocol\Encodable;
 use Thesis\Kafka\Protocol\Reader;
@@ -17,12 +19,12 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class MetadataRequestTopic implements Encodable, Decodable
 {
     /**
-     * @param string $topicId The topic id.
+     * @param UuidInterface $topicId The topic id.
      * @param ?string $name The topic name.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
-        public string $topicId,
+        public UuidInterface $topicId,
         public ?string $name,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
@@ -59,7 +61,7 @@ final readonly class MetadataRequestTopic implements Encodable, Decodable
     public static function decode(Reader $reader, int $version): static
     {
         $flexible = $version >= 9;
-        $topicId = '';
+        $topicId = Uuid::fromString(Uuid::NIL);
         if ($version >= 10) {
             $topicId = $reader->readUuid();
         }

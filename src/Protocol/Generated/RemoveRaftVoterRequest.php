@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Generated;
 
+use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Protocol\UnknownTags;
 use Thesis\Kafka\Protocol\Writer;
 
@@ -17,13 +18,13 @@ final readonly class RemoveRaftVoterRequest implements Request
     /**
      * @param ?string $clusterId The cluster id of the request.
      * @param int $voterId The replica id of the voter getting removed from the topic partition.
-     * @param string $voterDirectoryId The directory id of the voter getting removed from the topic partition.
+     * @param UuidInterface $voterDirectoryId The directory id of the voter getting removed from the topic partition.
      * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
      */
     public function __construct(
         public ?string $clusterId,
         public int $voterId,
-        public string $voterDirectoryId,
+        public UuidInterface $voterDirectoryId,
         public UnknownTags $unknownTags = new UnknownTags(),
     ) {}
 
