@@ -10,6 +10,7 @@ use Amp\NullCancellation;
 use Amp\Socket;
 use Amp\TimeoutCancellation;
 use Thesis\Kafka\Config;
+use Thesis\Kafka\Exception\ConnectionFailed;
 use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\Runtime\Connection\Bootstrapper;
@@ -139,17 +140,27 @@ final readonly class Cluster
         // stable node IDs.
         $broker->connection->close();
 
+        $reasons = [];
+
         foreach ($this->metadata as $node) {
-            $broker = $this->connectToBroker([$node->endpoint], $cancellation);
-            $broker = new Cluster\Broker(
-                id: $node->id,
-                connection: $broker->connection,
-                endpoint: $node->endpoint,
-                versions: $this->versions,
-            );
+            try {
+                $broker = $this->connectToBroker(
+                    [$node->endpoint],
+                    $cancellation,
+                );
+
+                return new Cluster\Broker(
+                    id: $node->id,
+                    connection: $broker->connection,
+                    endpoint: $node->endpoint,
+                    versions: $this->versions,
+                );
+            } catch (\Throwable $e) {
+                $reasons[(string) $node->endpoint] = $e;
+            }
         }
 
-        return $broker;
+        throw new ConnectionFailed($reasons);
     }
 
     /**

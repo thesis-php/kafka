@@ -12,7 +12,7 @@ use Thesis\Kafka\KafkaException;
 final class ConnectionFailed extends KafkaException
 {
     /**
-     * @param non-empty-array<non-empty-string, \Throwable> $reasons
+     * @param array<non-empty-string, \Throwable> $reasons
      */
     public function __construct(
         public readonly array $reasons,
@@ -21,7 +21,7 @@ final class ConnectionFailed extends KafkaException
     }
 
     /**
-     * @param non-empty-array<non-empty-string, \Throwable> $reasons
+     * @param array<non-empty-string, \Throwable> $reasons
      */
     private static function formatMessage(array $reasons): string
     {
