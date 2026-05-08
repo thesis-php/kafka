@@ -134,18 +134,10 @@ final class AdminClientTest extends TestCase
         $client = $this->createClient();
 
         $topic = $this->createTopicRequest($client);
-
-        $response = $client->request(new Generated\MetadataRequest(
-            topics: [
-                new Generated\MetadataRequest\MetadataRequestTopic(
-                    topicId: Uuid::fromString(Uuid::NIL),
-                    name: $topic->name,
-                ),
-            ],
-            allowAutoTopicCreation: false,
-            includeClusterAuthorizedOperations: false,
-            includeTopicAuthorizedOperations: false,
-        ));
+        $response = $this->waitUntilTopicVisible(
+            $client,
+            $topic->name,
+        );
 
         Assert::count($response->topics, 1);
         \assert(\count($response->topics) > 0);
@@ -163,7 +155,10 @@ final class AdminClientTest extends TestCase
         $client = $this->createClient();
 
         $topic = $this->createTopicRequest($client);
-        $response = $this->waitUntilTopicConfigsVisible($client, $topic->name);
+        $response = $this->waitUntilTopicConfigsVisible(
+            $client,
+            $topic->name,
+        );
 
         Assert::count($response->results, 1);
         \assert(\count($response->results) > 0);
@@ -252,12 +247,37 @@ final class AdminClientTest extends TestCase
         ));
     }
 
+    private function waitUntilTopicVisible(
+        Client $client,
+        string $topicName,
+    ): Generated\MetadataResponse {
+        return $this->waitUntil(
+            $client,
+            new Generated\MetadataRequest(
+                topics: [
+                    new Generated\MetadataRequest\MetadataRequestTopic(
+                        topicId: Uuid::fromString(Uuid::NIL),
+                        name: $topicName,
+                    ),
+                ],
+                allowAutoTopicCreation: false,
+                includeClusterAuthorizedOperations: false,
+                includeTopicAuthorizedOperations: false,
+            ),
+            static fn(Generated\MetadataResponse $response) => \count($response->topics) === 1
+                && $response->topics[0]->name === $topicName
+                && $response->topics[0]->errorCode === 0,
+            "Topic '{$topicName}' did not become visible in metadata.",
+        );
+    }
+
     private function waitUntilTopicConfigsVisible(
         Client $client,
         string $topicName,
     ): Generated\DescribeConfigsResponse {
-        for ($attempt = 0; $attempt < 10; ++$attempt) {
-            $response = $client->request(new Generated\DescribeConfigsRequest(
+        return $this->waitUntil(
+            $client,
+            new Generated\DescribeConfigsRequest(
                 resources: [
                     new Generated\DescribeConfigsRequest\DescribeConfigsResource(
                         resourceType: 2,
@@ -267,19 +287,36 @@ final class AdminClientTest extends TestCase
                 ],
                 includeSynonyms: false,
                 includeDocumentation: false,
-            ));
-
-            if (
-                \count($response->results) === 1
+            ),
+            static fn(Generated\DescribeConfigsResponse $response) => \count($response->results) === 1
                 && $response->results[0]->resourceName === $topicName
-                && $response->results[0]->errorCode === 0
-            ) {
+                && $response->results[0]->errorCode === 0,
+            "Topic '{$topicName}' configs did not become visible.",
+        );
+    }
+
+    /**
+     * @template T of Generated\Response
+     * @param Generated\Request<T> $request
+     * @param callable(T): bool $when
+     * @return T
+     */
+    private function waitUntil(
+        Client $client,
+        Generated\Request $request,
+        callable $when,
+        string $message,
+    ): Generated\Response {
+        for ($attempt = 0; $attempt < 10; ++$attempt) {
+            $response = $client->request($request);
+
+            if ($when($response)) {
                 return $response;
             }
 
             usleep(200_000);
         }
 
-        Assert::fail("Topic '{$topicName}' configs did not become visible.");
+        Assert::fail($message);
     }
 }
