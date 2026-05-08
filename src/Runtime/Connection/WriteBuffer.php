@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Runtime\Internal\Connection;
+namespace Thesis\Kafka\Runtime\Connection;
 
 use Amp\Socket\Socket;
 use Thesis\Kafka\Protocol\Generated\RequestHeader;

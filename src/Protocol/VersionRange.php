@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol;
 
-use Thesis\Kafka\Exception\IncompatibleVersions;
-
 /**
  * @internal
  */
@@ -22,16 +20,27 @@ final readonly class VersionRange
         \assert($max >= $min, 'max version must be greater than min version');
     }
 
+    public static function fromApiVersion(Generated\ApiVersionsResponse\ApiVersion $version): self
+    {
+        /** @var non-negative-int $min */
+        $min = $version->minVersion;
+
+        /** @var non-negative-int $max */
+        $max = $version->maxVersion;
+
+        return new self($min, $max);
+    }
+
     /**
-     * @throws IncompatibleVersions
+     * @return ?non-negative-int
      */
-    public function negotiate(self $broker): int
+    public function negotiate(self $broker): ?int
     {
         $min = max($this->min, $broker->min);
         $max = min($this->max, $broker->max);
 
         if ($max < $min) {
-            throw new IncompatibleVersions($this, $broker);
+            return null;
         }
 
         return $max;

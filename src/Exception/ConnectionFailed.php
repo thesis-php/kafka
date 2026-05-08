@@ -1,0 +1,43 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Thesis\Kafka\Exception;
+
+use Thesis\Kafka\KafkaException;
+
+/**
+ * @api
+ */
+final class ConnectionFailed extends KafkaException
+{
+    /**
+     * @param non-empty-array<non-empty-string, \Throwable> $reasons
+     */
+    public function __construct(
+        public readonly array $reasons,
+    ) {
+        parent::__construct(self::formatMessage($reasons));
+    }
+
+    /**
+     * @param non-empty-array<non-empty-string, \Throwable> $reasons
+     */
+    private static function formatMessage(array $reasons): string
+    {
+        $message = \sprintf(
+            'Unable to connect to any kafka seed endpoint (%d):',
+            \count($reasons),
+        );
+
+        foreach ($reasons as $endpoint => $reason) {
+            $message .= PHP_EOL . PHP_EOL . $endpoint . ' -> ' . $reason::class;
+
+            if ($reason->getMessage() !== '') {
+                $message .= ': ' . $reason->getMessage();
+            }
+        }
+
+        return $message;
+    }
+}

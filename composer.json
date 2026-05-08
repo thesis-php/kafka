@@ -26,6 +26,8 @@
         "ramsey/uuid": "^4.9",
         "revolt/event-loop": "^1.0",
         "thesis/endian": "^0.3.3",
+        "thesis/package-version": "^0.1.2",
+        "thesis/time-span": "^0.2.3",
         "thesis/varint": "^0.2.0"
     },
     "require-dev": {

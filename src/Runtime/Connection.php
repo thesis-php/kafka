@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Runtime\Internal;
+namespace Thesis\Kafka\Runtime;
 
 use Amp\Cancellation;
 use Amp\DeferredFuture;
@@ -13,7 +13,6 @@ use Amp\Socket\Socket;
 use Revolt\EventLoop;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\Protocol\Reader;
-use Thesis\Kafka\Runtime\Internal\Connection\CorrelationIds;
 
 /**
  * @internal
@@ -22,7 +21,7 @@ final class Connection
 {
     private const int SEND_BUFFER_SIZE = 10;
 
-    private readonly CorrelationIds $correlation;
+    private readonly Connection\CorrelationIds $correlation;
 
     /** @var Pipeline\Queue<Connection\PendingRequest<*>> */
     private readonly Pipeline\Queue $send;
@@ -36,7 +35,7 @@ final class Connection
         private readonly Socket $socket,
         int $sendBufferSize = self::SEND_BUFFER_SIZE,
     ) {
-        $this->correlation = new CorrelationIds();
+        $this->correlation = new Connection\CorrelationIds();
         $this->send = new Pipeline\Queue(bufferSize: $sendBufferSize);
     }
 
