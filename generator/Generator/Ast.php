@@ -8,7 +8,6 @@ use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Scalar;
 use PhpParser\Node\Stmt;
-use PhpParser\PrettyPrinter;
 
 /**
  * @internal
@@ -66,9 +65,9 @@ final readonly class Ast
     }
 
     /**
-     * @no-named-arguments
+     * @param list<Expr> $items
      */
-    public static function array(Expr ...$items): Expr\Array_
+    public static function array(array $items = []): Expr\Array_
     {
         return new Expr\Array_(
             array_map(static fn(Expr $item): Node\ArrayItem => new Node\ArrayItem($item), $items),
@@ -170,6 +169,26 @@ final readonly class Ast
         );
     }
 
+    /**
+     * @param non-empty-string $paramName
+     * @param non-empty-string $paramType
+     */
+    public static function fn(string $paramName, string $paramType, Expr $body, bool $static = false): Expr\ArrowFunction
+    {
+        return new Expr\ArrowFunction([
+            'static' => $static,
+            'params' => [
+                new Node\Param(
+                    var: new Expr\Variable($paramName),
+                    type: str_starts_with($paramType, '\\')
+                        ? new Node\Name\FullyQualified(substr($paramType, 1))
+                        : new Node\Name($paramType),
+                ),
+            ],
+            'expr' => $body,
+        ]);
+    }
+
     public static function ge(Expr $left, Expr $right): Expr\BinaryOp\GreaterOrEqual
     {
         return new Expr\BinaryOp\GreaterOrEqual($left, $right);
@@ -228,9 +247,9 @@ final readonly class Ast
     }
 
     /**
-     * @no-named-arguments
+     * @param list<Node\MatchArm> $arms
      */
-    public static function match(Expr $subject, Node\MatchArm ...$arms): Expr\Match_
+    public static function match(Expr $subject, array $arms): Expr\Match_
     {
         return new Expr\Match_($subject, $arms);
     }
@@ -238,6 +257,14 @@ final readonly class Ast
     public static function arm(Expr $cond, Expr $body): Node\MatchArm
     {
         return new Node\MatchArm([$cond], $body);
+    }
+
+    /**
+     * @param list<Expr> $conds
+     */
+    public static function armMany(array $conds, Expr $body): Node\MatchArm
+    {
+        return new Node\MatchArm($conds, $body);
     }
 
     public static function defaultArm(Expr $body): Node\MatchArm
@@ -329,7 +356,7 @@ final readonly class Ast
      */
     public static function line(Stmt ...$stmts): string
     {
-        return new PrettyPrinter\Standard()->prettyPrint($stmts);
+        return new Ast\Printer()->prettyPrint($stmts);
     }
 
     /**

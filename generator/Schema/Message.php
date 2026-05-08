@@ -12,6 +12,7 @@ final readonly class Message
     /**
      * @param non-empty-string $name
      * @param ?non-negative-int $apiKey
+     * @param list<non-empty-string> $listeners
      * @param list<Field> $fields
      * @param list<CommonStruct> $commonStructs
      */
@@ -21,6 +22,7 @@ final readonly class Message
         public VersionRange $validVersions = new VersionRange(),
         public VersionRange $flexibleVersions = new VersionRange(),
         public ?int $apiKey = null,
+        public array $listeners = [],
         public array $fields = [],
         public array $commonStructs = [],
     ) {}

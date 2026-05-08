@@ -111,6 +111,7 @@ final class GeneratorTest
                   "type": "request",
                   "name": "SampleRequest",
                   "apiKey": 42,
+                  "listeners": ["broker"],
                   "validVersions": "0-1",
                   "flexibleVersions": "1+",
                   "fields": [
@@ -153,6 +154,23 @@ final class GeneratorTest
                 }
                 JSON,
             [
+                'Listener.php' => <<<'PHP'
+                    <?php
+
+                    declare(strict_types=1);
+
+                    namespace Thesis\Kafka\Protocol\Generated;
+
+                    /**
+                     * @api
+                     * @generated
+                     */
+                    enum Listener: string
+                    {
+                        case Broker = 'broker';
+                    }
+
+                    PHP,
                 'ApiKey.php' => <<<'PHP'
                     <?php
 
@@ -169,6 +187,21 @@ final class GeneratorTest
                     enum ApiKey: int
                     {
                         case Sample = 42;
+
+                        /**
+                         * @return list<Listener>
+                         */
+                        public function listeners(): array
+                        {
+                            return match ($this) {
+                                self::Sample => [Listener::Broker],
+                            };
+                        }
+
+                        public function requiresAnyListener(Listener ...$listeners): bool
+                        {
+                            return array_any($listeners, fn(Listener $listener) => \in_array($listener, $this->listeners(), true));
+                        }
 
                         public function clientVersionRange(): VersionRange
                         {

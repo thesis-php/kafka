@@ -32,9 +32,62 @@ final readonly class ApiKeys implements \IteratorAggregate
         );
     }
 
+    /**
+     * @return list<ApiKeyListenerGroup>
+     */
+    public function groupListeners(): array
+    {
+        return $this->groupBy(
+            static fn(ApiKey $key) => implode("\0", $key->listeners),
+            static fn(ApiKey $key) => new ApiKeyListenerGroup($key->listeners),
+        );
+    }
+
+    /**
+     * @return list<ApiKeyVersionRangeGroup>
+     */
+    public function groupVersionRanges(): array
+    {
+        return $this->groupBy(
+            static fn(ApiKey $key) => "{$key->min}:{$key->max}",
+            static fn(ApiKey $key) => new ApiKeyVersionRangeGroup($key->min, $key->max),
+        );
+    }
+
+    /**
+     * @return list<ApiKeyFlexibleVersionGroup>
+     */
+    public function groupFlexibleVersions(): array
+    {
+        return $this->groupBy(
+            static fn(ApiKey $key) => "{$key->flexibleVersions->min}:{$key->flexibleVersions->max}",
+            static fn(ApiKey $key) => new ApiKeyFlexibleVersionGroup($key->flexibleVersions),
+        );
+    }
+
     #[\Override]
     public function getIterator(): \Traversable
     {
         yield from $this->keys;
+    }
+
+    /**
+     * @template T of ApiKeyListenerGroup|ApiKeyFlexibleVersionGroup|ApiKeyVersionRangeGroup
+     * @param callable(ApiKey): string $keyBy
+     * @param callable(ApiKey): T $factory
+     * @return list<T>
+     */
+    private function groupBy(callable $keyBy, callable $factory): array
+    {
+        $groups = [];
+
+        foreach ($this->keys as $key) {
+            $group = $keyBy($key);
+
+            $groups[$group] ??= $factory($key);
+            $groups[$group]->addKey($key);
+        }
+
+        return array_values($groups);
     }
 }

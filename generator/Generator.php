@@ -20,6 +20,7 @@ use PhpParser\Node\Stmt;
 use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Generator\Generator\Ast;
+use Thesis\Kafka\Generator\Schema\ApiKeyListenerGroup;
 
 /**
  * @internal
@@ -63,6 +64,7 @@ final readonly class Generator
         $this->generateResponseInterface();
 
         $apiKeys = new Schema\ApiKeys();
+        $listeners = [];
 
         foreach ($input->schemas() as $schemaJson) {
             $schema = self::json5decode($schemaJson);
@@ -90,13 +92,21 @@ final readonly class Generator
                     $name = substr($message->name, 0, -7);
                     \assert($name !== '');
 
+                    $listenersForKey = $message->listeners;
+                    sort($listenersForKey);
+
                     $apiKeys = $apiKeys->append(new Schema\ApiKey(
                         name: $name,
                         value: $message->apiKey,
                         min: $message->validVersions->min,
                         max: $message->validVersions->max,
                         flexibleVersions: $message->flexibleVersions,
+                        listeners: $listenersForKey,
                     ));
+
+                    foreach ($listenersForKey as $listener) {
+                        $listeners[$listener] = true;
+                    }
                 }
             } elseif ($message->type === Schema\Type::Response) {
                 $this->generateResponse($message);
@@ -105,6 +115,7 @@ final readonly class Generator
             }
         }
 
+        $this->generateListener(array_keys($listeners));
         $this->generateApiKey($apiKeys);
     }
 
@@ -246,6 +257,62 @@ final readonly class Generator
         }
 
         $enum
+            ->addMethod('listeners')
+            ->setPublic()
+            ->setReturnType('array')
+            ->setBody(Ast::body(
+                Ast::return(
+                    Ast::match(
+                        Ast::this(),
+                        array_map(
+                            static fn(ApiKeyListenerGroup $group) => Ast::armMany(
+                                array_map(
+                                    static fn(Schema\ApiKey $key) => Ast::classConst(class: 'self', name: $key->name),
+                                    $group->keys,
+                                ),
+                                Ast::array(
+                                    array_map(
+                                        static fn(string $listener) => Ast::classConst(class: 'Listener', name: self::listenerCaseName($listener)),
+                                        $group->listeners,
+                                    ),
+                                ),
+                            ),
+                            $keys->groupListeners(),
+                        ),
+                    ),
+                ),
+            ))
+            ->addComment('@return list<Listener>');
+
+        $enum
+            ->addMethod('requiresAnyListener')
+            ->setPublic()
+            ->setReturnType('bool')
+            ->setVariadic()
+            ->setParameters([
+                new Parameter('listeners')
+                    ->setType($this->generatedNs->fqcn('Listener')),
+            ])
+            ->setBody(Ast::body(
+                Ast::return(
+                    Ast::funcCall(
+                        'array_any',
+                        Ast::var('listeners'),
+                        Ast::fn(
+                            'listener',
+                            'Listener',
+                            Ast::funcCall(
+                                '\in_array',
+                                Ast::var('listener'),
+                                Ast::call(Ast::this(), 'listeners'),
+                                Ast::bool(true),
+                            ),
+                        ),
+                    ),
+                ),
+            ));
+
+        $enum
             ->addMethod('clientVersionRange')
             ->setPublic()
             ->setReturnType($this->protocolNs->fqcn('VersionRange'))
@@ -253,12 +320,15 @@ final readonly class Generator
                 Ast::return(
                     Ast::match(
                         Ast::this(),
-                        ...array_map(
-                            static fn(Schema\ApiKey $key) => Ast::arm(
-                                Ast::classConst('self', $key->name),
-                                Ast::new('VersionRange', Ast::int($key->min), Ast::int($key->max)),
+                        array_map(
+                            static fn(Schema\ApiKeyVersionRangeGroup $group) => Ast::armMany(
+                                array_map(
+                                    static fn(Schema\ApiKey $key) => Ast::classConst('self', $key->name),
+                                    $group->keys,
+                                ),
+                                Ast::new('VersionRange', Ast::int($group->min), Ast::int($group->max)),
                             ),
-                            $keys->keys,
+                            $keys->groupVersionRanges(),
                         ),
                     ),
                 ),
@@ -275,12 +345,15 @@ final readonly class Generator
                 Ast::return(
                     Ast::match(
                         Ast::this(),
-                        ...array_map(
-                            static fn(Schema\ApiKey $key) => Ast::arm(
-                                Ast::classConst('self', $key->name),
-                                self::versionContainsExpr($key->flexibleVersions, Ast::var('apiVersion')),
+                        array_map(
+                            static fn(Schema\ApiKeyFlexibleVersionGroup $group) => Ast::armMany(
+                                array_map(
+                                    static fn(Schema\ApiKey $key): Expr => Ast::classConst('self', $key->name),
+                                    $group->keys,
+                                ),
+                                self::versionContainsExpr($group->flexibleVersions, Ast::var('apiVersion')),
                             ),
-                            $keys->keys,
+                            $keys->groupFlexibleVersions(),
                         ),
                     ),
                 ),
@@ -317,11 +390,13 @@ final readonly class Generator
 
             $responseHeaderVersion = Ast::match(
                 Ast::this(),
-                Ast::arm(
-                    Ast::classConst('self', 'ApiVersions'),
-                    Ast::int(0),
-                ),
-                Ast::defaultArm($responseHeaderVersion),
+                [
+                    Ast::arm(
+                        Ast::classConst('self', 'ApiVersions'),
+                        Ast::int(0),
+                    ),
+                    Ast::defaultArm($responseHeaderVersion),
+                ],
             );
 
             break;
@@ -344,9 +419,33 @@ final readonly class Generator
         $namespace = $this->generatedNs
             ->new()
             ->addUse($this->protocolNs->fqcn('VersionRange'))
+            ->addUse($this->generatedNs->fqcn('Listener'))
             ->add($enum);
 
         $this->fs->write('ApiKey', $namespace);
+    }
+
+    /**
+     * @param list<non-empty-string> $listeners
+     */
+    private function generateListener(array $listeners): void
+    {
+        sort($listeners);
+
+        $enum = new EnumType('Listener')
+            ->setType('string')
+            ->addComment('@api')
+            ->addComment('@generated');
+
+        foreach ($listeners as $listener) {
+            $enum->addCase(self::listenerCaseName($listener), $listener);
+        }
+
+        $namespace = $this->generatedNs
+            ->new()
+            ->add($enum);
+
+        $this->fs->write('Listener', $namespace);
     }
 
     private function generateRequestClass(Schema\Message $request): void
@@ -1672,6 +1771,18 @@ final readonly class Generator
         }
 
         return false;
+    }
+
+    /**
+     * @param non-empty-string $listener
+     * @return non-empty-string
+     */
+    private static function listenerCaseName(string $listener): string
+    {
+        $listener = str_replace(['-', '_'], ' ', $listener);
+
+        /** @var non-empty-string */
+        return str_replace(' ', '', ucwords($listener));
     }
 
     /**

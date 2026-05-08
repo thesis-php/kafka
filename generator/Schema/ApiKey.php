@@ -14,6 +14,7 @@ final readonly class ApiKey
      * @param non-negative-int $value
      * @param non-negative-int $min
      * @param non-negative-int $max
+     * @param list<non-empty-string> $listeners
      */
     public function __construct(
         public string $name,
@@ -21,5 +22,6 @@ final readonly class ApiKey
         public int $min,
         public int $max,
         public VersionRange $flexibleVersions = new VersionRange(),
+        public array $listeners = [],
     ) {}
 }
