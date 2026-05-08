@@ -112,17 +112,21 @@ final class Connection
                     $request = $pending[$correlationId];
                     unset($pending[$correlationId]);
 
-                    $headerVersion = $request->call->request
-                        ->apiKey()
-                        ->responseHeaderVersion($request->call->version);
+                    try {
+                        $headerVersion = $request->call->request
+                            ->apiKey()
+                            ->responseHeaderVersion($request->call->version);
 
-                    if ($headerVersion >= 1) {
-                        $reader->readTaggedFields();
+                        if ($headerVersion >= 1) {
+                            $reader->readTaggedFields();
+                        }
+
+                        $responseType = $request->call->request->responseType();
+                        $response = $responseType::decode($reader, $request->call->version);
+                        $request->deferred->complete($response);
+                    } catch (\Throwable $e) {
+                        $request->deferred->error($e);
                     }
-
-                    $responseType = $request->call->request->responseType();
-                    $response = $responseType::decode($reader, $request->call->version);
-                    $request->deferred->complete($response);
                 }
             }
         });
