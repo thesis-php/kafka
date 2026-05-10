@@ -7,10 +7,12 @@ namespace Thesis\Kafka\Protocol;
 /**
  * @api
  */
-final readonly class Error
+interface Error
 {
-    public function __construct(
-        public ErrorCode $code,
-        public ?string $message = null,
-    ) {}
+    public function code(): ErrorCode;
+
+    /**
+     * @return non-empty-string
+     */
+    public function message(): string;
 }

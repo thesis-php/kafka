@@ -9,6 +9,7 @@ namespace Thesis\Kafka\Protocol;
  */
 enum ErrorCode: int
 {
+    case None = 0;
     case UnknownServerError = -1;
     case OffsetOutOfRange = 1;
     case CorruptMessage = 2;
@@ -147,6 +148,7 @@ enum ErrorCode: int
     public function message(): string
     {
         return match ($this) {
+            self::None => 'NO_ERROR',
             self::UnknownServerError => 'UNKNOWN_SERVER_ERROR',
             self::OffsetOutOfRange => 'OFFSET_OUT_OF_RANGE',
             self::CorruptMessage => 'CORRUPT_MESSAGE',
@@ -316,9 +318,13 @@ enum ErrorCode: int
         };
     }
 
+    /**
+     * @return non-empty-string
+     */
     public function description(): string
     {
         return match ($this) {
+            self::None => 'No error',
             self::UnknownServerError => 'The server experienced an unexpected error when processing the request.',
             self::OffsetOutOfRange => 'The requested offset is not within the range of offsets maintained by the server.',
             self::CorruptMessage => 'This message has failed its CRC checksum, exceeds the valid size, has a null key for a compacted topic, or is otherwise corrupt.',
