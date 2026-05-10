@@ -7,6 +7,10 @@ namespace Thesis\Kafka;
 use Ramsey\Uuid\Uuid;
 use Testo\Assert;
 use Testo\Test;
+use Thesis\Kafka\Exception\ProtocolError;
+use Thesis\Kafka\Protocol\Error\ConfigResourceError;
+use Thesis\Kafka\Protocol\Error\TopicError;
+use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
 
 final class AdminClientTest extends TestCase
@@ -264,9 +268,7 @@ final class AdminClientTest extends TestCase
                 includeClusterAuthorizedOperations: false,
                 includeTopicAuthorizedOperations: false,
             ),
-            static fn(Generated\MetadataResponse $response) => \count($response->topics) === 1
-                && $response->topics[0]->name === $topicName
-                && $response->topics[0]->errorCode === 0,
+            fn(ProtocolError $e): bool => $this->isRetryableTopicVisibilityError($e, $topicName),
             "Topic '{$topicName}' did not become visible in metadata.",
         );
     }
@@ -288,33 +290,68 @@ final class AdminClientTest extends TestCase
                 includeSynonyms: false,
                 includeDocumentation: false,
             ),
-            static fn(Generated\DescribeConfigsResponse $response) => \count($response->results) === 1
-                && $response->results[0]->resourceName === $topicName
-                && $response->results[0]->errorCode === 0,
+            fn(ProtocolError $e): bool => $this->isRetryableTopicConfigVisibilityError($e, $topicName),
             "Topic '{$topicName}' configs did not become visible.",
         );
+    }
+
+    private function isRetryableTopicVisibilityError(
+        ProtocolError $e,
+        string $topicName,
+    ): bool {
+        foreach ($e->errors as $error) {
+            if (
+                $error instanceof TopicError
+                && $error->topic === $topicName
+                && $error->code() === ErrorCode::UnknownTopicOrPartition
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isRetryableTopicConfigVisibilityError(
+        ProtocolError $e,
+        string $topicName,
+    ): bool {
+        foreach ($e->errors as $error) {
+            if (
+                $error instanceof ConfigResourceError
+                && $error->resourceType === 2
+                && $error->resourceName === $topicName
+                && $error->code() === ErrorCode::UnknownTopicOrPartition
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
-     * @param callable(T): bool $when
+     * @param callable(ProtocolError): bool $retryOnProtocolError
      * @return T
      */
     private function waitUntil(
         Client $client,
         Generated\Request $request,
-        callable $when,
+        callable $retryOnProtocolError,
         string $message,
     ): Generated\Response {
         for ($attempt = 0; $attempt < 10; ++$attempt) {
-            $response = $client->request($request);
+            try {
+                return $client->request($request);
+            } catch (ProtocolError $e) {
+                if (!$retryOnProtocolError($e)) {
+                    throw $e;
+                }
 
-            if ($when($response)) {
-                return $response;
+                usleep(200_000);
             }
-
-            usleep(200_000);
         }
 
         Assert::fail($message);

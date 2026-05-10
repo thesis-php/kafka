@@ -82,7 +82,7 @@ final readonly class Errors implements
      */
     public function ofCode(ErrorCode $code): array
     {
-        return \array_values(\array_filter(
+        return array_values(array_filter(
             $this->errors,
             static fn(Error $error) => $error->code() === $code,
         ));

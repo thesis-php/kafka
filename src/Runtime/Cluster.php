@@ -7,13 +7,11 @@ namespace Thesis\Kafka\Runtime;
 use Amp\Cancellation;
 use Amp\Future;
 use Amp\NullCancellation;
-use Amp\Socket;
 use Amp\TimeoutCancellation;
 use Thesis\Kafka\Config;
-use Thesis\Kafka\Exception\ConnectionFailed;
+use Thesis\Kafka\Exception\AllSeedsFailed;
 use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\Generated;
-use Thesis\Kafka\Runtime\Connection\Bootstrapper;
 use function Amp\async;
 
 /**
@@ -25,17 +23,12 @@ final readonly class Cluster
 
     private Cluster\MetadataList $metadata;
 
-    private Cluster\NegotiatedVersions $versions;
+    private ConnectionFactory $connections;
 
-    private Bootstrapper $bootstrapper;
-
-    public function __construct(
-        private Config $config,
-        ?Socket\SocketConnector $connector = null,
-    ) {
+    public function __construct(private Config $config)
+    {
         $this->brokers = new Cluster\BrokerList();
-        $this->versions = new Cluster\NegotiatedVersions();
-        $this->bootstrapper = new Bootstrapper($connector);
+        $this->connections = new ConnectionFactory($config);
         $this->metadata = new Cluster\MetadataList(controllerId: Cluster\Broker::NOT_A_BROKER_ID);
     }
 
@@ -78,39 +71,10 @@ final readonly class Cluster
      */
     private function newBroker(Cancellation $cancellation = new NullCancellation()): Cluster\Broker
     {
-        $requireApiVersionsRequest = false;
-
-        if (\count($this->versions) === 0) {
-            // No cluster-wide version negotiation exists yet, so we bootstrap with the
-            // only ApiVersions version we can safely assume before negotiation: v0.
-            // Once the broker replies, the full response will reseed the negotiated
-            // versions map, including ApiVersions itself, with the actual compatible
-            // version range for this cluster.
-            $this->versions->seed(new Generated\ApiVersionsResponse\ApiVersion(
-                apiKey: Generated\ApiKey::ApiVersions->value,
-                minVersion: 0,
-                maxVersion: 0,
-            ));
-
-            $requireApiVersionsRequest = true;
-        }
-
         $broker = $this->connectToBroker(
             $this->config->seeds,
             $cancellation,
         );
-
-        if ($requireApiVersionsRequest) {
-            $versions = $broker->request(
-                new Generated\ApiVersionsRequest(
-                    clientSoftwareName: $this->config->clientSoftwareName,
-                    clientSoftwareVersion: $this->config->clientSoftwareVersion,
-                ),
-                $cancellation,
-            );
-
-            $this->versions->seed(...$versions->apiKeys);
-        }
 
         if (\count($this->metadata) === 0) {
             $this->refreshMetadata($broker, $cancellation);
@@ -120,12 +84,10 @@ final readonly class Cluster
         // If the connected seed endpoint matches an advertised broker endpoint, we can
         // replace the temporary placeholder entry with the broker's real node ID.
         foreach ($this->metadata as $node) {
-            if ($broker->endpoint->matches($node->endpoint)) {
+            if ($broker->connection->endpoint->matches($node->endpoint)) {
                 $broker = new Cluster\Broker(
                     id: $node->id,
                     connection: $broker->connection,
-                    endpoint: $node->endpoint,
-                    versions: $this->versions,
                 );
 
                 $this->brokers->add($broker);
@@ -152,15 +114,13 @@ final readonly class Cluster
                 return new Cluster\Broker(
                     id: $node->id,
                     connection: $broker->connection,
-                    endpoint: $node->endpoint,
-                    versions: $this->versions,
                 );
             } catch (\Throwable $e) {
                 $reasons[(string) $node->endpoint] = $e;
             }
         }
 
-        throw new ConnectionFailed($reasons);
+        throw new AllSeedsFailed($reasons); // TODO: change to seed and known brokers map
     }
 
     /**
@@ -187,8 +147,6 @@ final readonly class Cluster
         $controller = new Cluster\Broker(
             id: $node->id,
             connection: $controller->connection,
-            endpoint: $controller->endpoint,
-            versions: $controller->versions,
         );
 
         $this->brokers->add($controller);
@@ -217,26 +175,32 @@ final readonly class Cluster
     }
 
     /**
-     * @param non-empty-list<Config\Endpoint> $hosts
+     * @param non-empty-list<Config\Endpoint> $endpoints
      * @throws KafkaException
      */
     private function connectToBroker(
-        array $hosts,
+        array $endpoints,
         Cancellation $cancellation,
     ): Cluster\Broker {
-        $context = new Socket\ConnectContext()
-            ->withConnectTimeout($this->config->connectTimeout->toSeconds())
-            ->withTcpNoDelay();
+        $reasons = [];
 
-        if (($tls = $this->config->tls?->context()) !== null) {
-            $context = $context->withTlsContext($tls);
+        foreach ($endpoints as $endpoint) {
+            try {
+                $connection = $this->connections->open($endpoint, $cancellation);
+
+                // This is a temporary bootstrap broker entry. At this point we only have
+                // a live connection to one seed endpoint, but we do not yet know which
+                // broker ID it corresponds to. A subsequent MetadataRequest will either
+                // match this connection to a real broker ID or cause us to discard it in
+                // favor of a new connection to an advertised broker endpoint.
+                return Cluster\Broker::unknown(
+                    $connection,
+                );
+            } catch (\Throwable $e) {
+                $reasons[(string) $endpoint] = $e;
+            }
         }
 
-        return $this->bootstrapper->connect(
-            $hosts,
-            $context,
-            $this->versions,
-            $cancellation,
-        );
+        throw new AllSeedsFailed($reasons);
     }
 }

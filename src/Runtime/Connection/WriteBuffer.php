@@ -23,7 +23,7 @@ final readonly class WriteBuffer
     public function write(PendingRequest $request): void
     {
         $apiKey = $request->call->request->apiKey();
-        $apiVersion = $request->call->version;
+        $apiVersion = $request->version;
         $headerVersion = $apiKey->requestHeaderVersion($apiVersion);
 
         $payload = new Writer();
