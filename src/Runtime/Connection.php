@@ -170,12 +170,14 @@ final class Connection
             $requests = $pending;
             $pending = [];
 
-            $exception ??= $state === Connection\State::Running
-                ? new ConnectionClosed("Connection closed by the broker: {$endpoint}.")
-                : new ConnectionClosed("Connection closed locally: {$endpoint}.");
+            if ($requests !== []) {
+                $exception ??= $state === Connection\State::Running
+                    ? new ConnectionClosed("Connection closed by the broker: {$endpoint}.")
+                    : new ConnectionClosed("Connection closed locally: {$endpoint}.");
 
-            foreach ($requests as $request) {
-                $request->complete(exception: $exception);
+                foreach ($requests as $request) {
+                    $request->complete(exception: $exception);
+                }
             }
 
             // Wake the writer coroutine if it's still draining the queue. When state
