@@ -15,6 +15,21 @@ final class ProtocolError extends KafkaException
     public function __construct(
         public readonly Errors $errors,
     ) {
-        parent::__construct(\sprintf('Kafka request failed with one or more protocol errors, use %s::errors for details.', self::class));
+        parent::__construct(self::formatMessage($errors));
+    }
+
+    private static function formatMessage(Errors $errors): string
+    {
+        $message = \sprintf(
+            'Kafka request failed with %d protocol error(s):',
+            \count($errors),
+        );
+
+        foreach ($errors as $error) {
+            $message .= PHP_EOL . PHP_EOL . $error::class;
+            $message .= " [{$error->code()->message()}]: {$error->message()}";
+        }
+
+        return $message;
     }
 }

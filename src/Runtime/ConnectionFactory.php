@@ -11,6 +11,7 @@ use Thesis\Kafka\Config;
 use Thesis\Kafka\Exception\ConnectionFailed;
 use Thesis\Kafka\Exception\NoCompatibleSaslMechanism;
 use Thesis\Kafka\Exception\ProtocolError;
+use Thesis\Kafka\Exception\SaslAuthenticationFailed;
 use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
@@ -65,9 +66,19 @@ final readonly class ConnectionFactory
 
         $this->doVersionsHandshake($connection, $cancellation);
 
-        $sasl = $this->config->sasl->authenticators ?? [];
-        if ($sasl !== []) {
-            $this->doSaslHandshake($connection, $sasl, $cancellation);
+        try {
+            $this->doSaslHandshake($connection, $cancellation);
+        } catch (\Throwable $e) {
+            $connection->close();
+
+            if ($e instanceof ProtocolError) {
+                $authenticationErrors = $e->errors->ofCode(ErrorCode::SaslAuthenticationFailed);
+                if ($authenticationErrors !== []) {
+                    $e = new SaslAuthenticationFailed($authenticationErrors[0]->message());
+                }
+            }
+
+            throw $e;
         }
 
         return $connection;
@@ -124,19 +135,16 @@ final readonly class ConnectionFactory
     }
 
     /**
-     * @param non-empty-list<SASL\Authenticator> $sasl
      * @throws KafkaException
      */
-    private function doSaslHandshake(
-        Connection $connection,
-        array $sasl,
-        Cancellation $cancellation,
-    ): void {
+    private function doSaslHandshake(Connection $connection, Cancellation $cancellation): void
+    {
+        $sasl = $this->config->sasl->authenticators ?? [];
+        if ($sasl === []) {
+            return;
+        }
+
         $supported = [];
-        $configured = array_map(
-            static fn(SASL\Authenticator $authenticator) => $authenticator->mechanism(),
-            $sasl,
-        );
 
         // Kafka requires the client to nominate a SASL mechanism in the
         // SaslHandshake request itself. We therefore try the configured
@@ -172,7 +180,13 @@ final readonly class ConnectionFactory
             $supported = $response->mechanisms;
         }
 
-        throw new NoCompatibleSaslMechanism($configured, $supported);
+        throw new NoCompatibleSaslMechanism(
+            array_map(
+                static fn(SASL\Authenticator $authenticator) => $authenticator->mechanism(),
+                $sasl,
+            ),
+            $supported,
+        );
     }
 
     /**
@@ -191,7 +205,7 @@ final readonly class ConnectionFactory
         // proceeds as a challenge/response loop over the SaslAuthenticate API.
         // PLAIN finishes in one round-trip; SCRAM and future mechanisms can ask
         // for more steps by returning State::Continue from the local session.
-        while (true) {
+        while ($exchange->message !== null) {
             $response = $connection
                 ->call(
                     new Connection\Call(

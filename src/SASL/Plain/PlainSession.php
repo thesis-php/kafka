@@ -4,14 +4,12 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\SASL\Plain;
 
-use Thesis\Kafka\SASL\Exchange;
-use Thesis\Kafka\SASL\Session;
-use Thesis\Kafka\SASL\State;
+use Thesis\Kafka\SASL;
 
 /**
  * @internal
  */
-final readonly class PlainSession implements Session
+final readonly class PlainSession implements SASL\Session
 {
     /**
      * @param non-empty-string $token
@@ -21,13 +19,13 @@ final readonly class PlainSession implements Session
     ) {}
 
     #[\Override]
-    public function start(): Exchange
+    public function start(): SASL\Exchange
     {
-        return new Exchange(State::Done, $this->token);
+        return SASL\Exchange::done($this->token);
     }
 
     #[\Override]
-    public function challenge(int $step, string $bytes): Exchange
+    public function challenge(int $step, string $bytes): SASL\Exchange
     {
         throw new \LogicException('PLAIN does not produce challenges.');
     }

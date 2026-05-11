@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\SASL;
 
+use Thesis\Kafka\Exception\SaslAuthenticationFailed;
+
 /**
  * @api
  */
@@ -13,6 +15,7 @@ interface Session
 
     /**
      * @param non-negative-int $step
+     * @throws SaslAuthenticationFailed
      */
     public function challenge(int $step, string $bytes): Exchange;
 }

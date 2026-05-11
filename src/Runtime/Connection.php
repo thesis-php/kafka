@@ -265,6 +265,10 @@ final class Connection
                     }
                 }
             } catch (\Throwable $exception) {
+                // Caught here so the finally block can rethrow it through pending
+                // requests with proper context. Without this, an unexpected error
+                // in the read loop would surface in pending requests as a generic
+                // "connection closed" with no clue about the actual cause.
             } finally {
                 // The read loop has exited — the socket is gone, either because we
                 // closed it ourselves (close() was called) or because the broker

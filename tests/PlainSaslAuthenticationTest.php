@@ -8,11 +8,11 @@ use Testo\Assert;
 use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Config\SASLConfig;
+use Thesis\Kafka\Exception\AllSeedsFailed;
 use Thesis\Kafka\Exception\ConnectionClosed;
-use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
 
-final readonly class PlainSaslBrokerTest extends TestCase
+final readonly class PlainSaslAuthenticationTest extends TestCase
 {
     #[Test]
     public function metadataWithoutSaslClosesConnection(): void
@@ -48,21 +48,30 @@ final readonly class PlainSaslBrokerTest extends TestCase
         $client->close();
     }
 
-    private function createPlainClient(?SASLConfig $sasl = null): Client
+    #[Test]
+    public function metadataWithWrongPlainPasswordFailsAuthentication(): void
     {
-        return new Client(new Config(
-            seeds: ['kafka-plain-standalone:9092'],
-            sasl: $sasl,
-        ));
+        $client = $this->createPlainClient(
+            new SASLConfig([
+                new PlainAuthenticator(
+                    username: 'test',
+                    password: 'wrong-secret',
+                ),
+            ]),
+        );
+
+        Expect::exception(AllSeedsFailed::class)
+            ->fromMethod(Client::class, 'request')
+            ->withMessageContaining('Invalid username or password');
+
+        $client->request($this->metadataRequest());
     }
 
-    private function metadataRequest(): Generated\MetadataRequest
+    private function createPlainClient(?SASLConfig $sasl = null): Client
     {
-        return new Generated\MetadataRequest(
-            topics: null,
-            allowAutoTopicCreation: false,
-            includeClusterAuthorizedOperations: false,
-            includeTopicAuthorizedOperations: false,
+        return $this->createClient(
+            seeds: ['kafka-plain-standalone:9092'],
+            sasl: $sasl,
         );
     }
 }
