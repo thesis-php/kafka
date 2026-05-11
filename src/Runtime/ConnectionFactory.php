@@ -65,14 +65,16 @@ final readonly class ConnectionFactory
         // We don't share versions across connections so each one identifies its
         // clientSoftwareName/clientSoftwareVersion to the broker (KIP-511).
         $response = $connection
-            ->call(new Connection\Call(
-                request: new Generated\ApiVersionsRequest(
-                    clientSoftwareName: $this->config->clientSoftwareName,
-                    clientSoftwareVersion: $this->config->clientSoftwareVersion,
+            ->call(
+                new Connection\Call(
+                    request: new Generated\ApiVersionsRequest(
+                        clientSoftwareName: $this->config->clientSoftwareName,
+                        clientSoftwareVersion: $this->config->clientSoftwareVersion,
+                    ),
+                    version: 0,
                 ),
-                version: 0,
-            ))
-            ->await($cancellation);
+                $cancellation,
+            );
 
         $connection->versions->seed(...$response->apiKeys);
 

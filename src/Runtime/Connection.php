@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Runtime;
 
 use Amp\Cancellation;
-use Amp\CancelledException;
 use Amp\DeferredFuture;
-use Amp\Future;
 use Amp\NullCancellation;
 use Amp\Pipeline;
 use Amp\Socket\Socket;
@@ -67,14 +65,14 @@ final class Connection
     /**
      * @template R of Generated\Response
      * @param Connection\Call<R> $call
-     * @return Future<R>
+     * @return R
      * @throws KafkaException
      * @throws Pipeline\DisposedException
      */
     public function call(
         Connection\Call $call,
         Cancellation $cancellation = new NullCancellation(),
-    ): Future {
+    ): Generated\Response {
         if ($this->state === Connection\State::Closed) {
             throw new ConnectionClosed('Connection is closed.');
         }
@@ -106,28 +104,23 @@ final class Connection
         $pending = &$this->pending;
         $pending[$id] = $request;
 
-        // Cancellation only removes the request from the pending map. If the
-        // request was already written to the socket (very likely once we're
-        // past push()), the response will still arrive and silently be dropped
-        // in the read loop as "unknown correlation id". Aborting an in-flight
-        // pipelined request can only be done by killing the whole TCP session,
-        // which we don't do at this layer.
-        $cancellation->subscribe(static function (CancelledException $e) use (
-            &$pending,
-            $id,
-            $deferred,
-        ): void {
-            unset($pending[$id]);
-            $deferred->error($e);
-        });
-
         if ($this->state === Connection\State::Idle) {
             $this->run();
         }
 
         $this->send->push($request);
 
-        return $deferred->getFuture();
+        try {
+            return $deferred->getFuture()->await($cancellation);
+        } finally {
+            // Cancellation only removes the request from the pending map. If the
+            // request was already written to the socket (very likely once we're
+            // past push()), the response will still arrive and silently be dropped
+            // in the read loop as "unknown correlation id". Aborting an in-flight
+            // pipelined request can only be done by killing the whole TCP session,
+            // which we don't do at this layer.
+            unset($pending[$id]);
+        }
     }
 
     /**

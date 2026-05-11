@@ -38,10 +38,9 @@ final readonly class Broker
      */
     public function request(Generated\Request $request, Cancellation $cancellation): Generated\Response
     {
-        $future = $this->connection->call(new Runtime\Connection\Call(
-            request: $request,
-        ));
-
-        return $future->await($cancellation);
+        return$this->connection->call(
+            new Runtime\Connection\Call($request),
+            $cancellation,
+        );
     }
 }
