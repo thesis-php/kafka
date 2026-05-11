@@ -21,15 +21,28 @@ final readonly class Call
 
     /**
      * @param Generated\Request<T> $request
-     * @param -1|non-negative-int $version
+     * @param -1|non-negative-int $requestVersion
+     * @param -1|non-negative-int $responseVersion
      */
     public function __construct(
         public Generated\Request $request,
-        public int $version = self::NOT_A_REAL_VERSION,
+        public int $requestVersion = self::NOT_A_REAL_VERSION,
+        public int $responseVersion = self::NOT_A_REAL_VERSION,
     ) {}
 
-    public function versionUnset(): bool
+    /**
+     * @phpstan-assert-if-false non-negative-int $this->requestVersion
+     */
+    public function requestVersionUnset(): bool
     {
-        return $this->version === self::NOT_A_REAL_VERSION;
+        return $this->requestVersion === self::NOT_A_REAL_VERSION;
+    }
+
+    /**
+     * @phpstan-assert-if-false non-negative-int $this->responseVersion
+     */
+    public function responseVersionUnset(): bool
+    {
+        return $this->responseVersion === self::NOT_A_REAL_VERSION;
     }
 }

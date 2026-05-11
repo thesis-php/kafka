@@ -7,6 +7,7 @@ namespace Thesis\Kafka\Protocol;
 use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Endian;
+use Thesis\Kafka\Exception\UnexpectedEof;
 use Thesis\Varint;
 
 /**
@@ -26,6 +27,14 @@ final class Reader
         private readonly string $buffer,
     ) {
         $this->length = \strlen($this->buffer);
+    }
+
+    /**
+     * @param non-negative-int $offset
+     */
+    public function reset(int $offset): void
+    {
+        $this->offset = $offset;
     }
 
     public function readInt8(): int
@@ -287,11 +296,12 @@ final class Reader
     /**
      * @param non-negative-int $n
      * @return non-empty-string
+     * @throws UnexpectedEof
      */
     private function read(int $n): string
     {
         if ($this->offset + $n > $this->length) {
-            throw new \UnderflowException(\sprintf(
+            throw new UnexpectedEof(\sprintf(
                 'Cannot read %d byte(s) at offset %d: only %d byte(s) remaining',
                 $n,
                 $this->offset,

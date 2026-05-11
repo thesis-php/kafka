@@ -9,7 +9,10 @@ use Amp\NullCancellation;
 use Amp\Socket;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Exception\ConnectionFailed;
+use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\KafkaException;
+use Thesis\Kafka\Protocol\ErrorCode;
+use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 
 /**
@@ -58,27 +61,59 @@ final readonly class ConnectionFactory
             $endpoint,
         );
 
-        // ApiVersionsRequest is allowed before authentication and is sent at v0:
-        // the only version safe to assume on any broker since 0.10. The response
-        // seeds this connection's version map for everything that follows.
-        //
-        // We don't share versions across connections so each one identifies its
-        // clientSoftwareName/clientSoftwareVersion to the broker (KIP-511).
-        $response = $connection
-            ->call(
-                new Connection\Call(
-                    request: new Generated\ApiVersionsRequest(
-                        clientSoftwareName: $this->config->clientSoftwareName,
-                        clientSoftwareVersion: $this->config->clientSoftwareVersion,
-                    ),
-                    version: 0,
-                ),
-                $cancellation,
-            );
-
-        $connection->versions->seed(...$response->apiKeys);
+        $this->doVersionsHandshake($connection, $cancellation);
 
         return $connection;
+    }
+
+    /**
+     * @throws KafkaException
+     */
+    private function doVersionsHandshake(Connection $connection, Cancellation $cancellation): void
+    {
+        // ApiVersions is the only request we can send before the connection has
+        // any negotiated protocol state. We start at v4 because modern brokers
+        // support it and can return richer version metadata. If the broker
+        // answers with UNSUPPORTED_VERSION, we fall back once to v0 — the
+        // conservative baseline expected to work on older brokers.
+        //
+        // The Connection read path already knows how to reinterpret the same
+        // ApiVersions response frame across legacy and modern body shapes, so
+        // this method only decides whether a second wire request is necessary.
+        //
+        // We do not share negotiated versions across connections: each new
+        // socket performs its own bootstrap and seeds its own version map
+        // (KIP-511).
+        $request = new Generated\ApiVersionsRequest(
+            clientSoftwareName: $this->config->clientSoftwareName,
+            clientSoftwareVersion: $this->config->clientSoftwareVersion,
+        );
+
+        $versions = [4, 0];
+        $last = array_key_last($versions);
+
+        foreach ($versions as $index => $version) {
+            $response = $connection
+                ->call(
+                    new Connection\Call(
+                        request: $request,
+                        requestVersion: $version,
+                        responseVersion: 0,
+                    ),
+                    $cancellation,
+                );
+
+            $error = ErrorCode::from($response->errorCode);
+            if ($error === ErrorCode::None) {
+                $connection->versions->seed(...$response->apiKeys);
+
+                return;
+            }
+
+            if ($error !== ErrorCode::UnsupportedVersion || $index === $last) {
+                throw new ProtocolError(Errors::for($response));
+            }
+        }
     }
 
     private static function configureConnectContext(Config $config): Socket\ConnectContext

@@ -22,8 +22,8 @@ final readonly class WriteBuffer
      */
     public function write(PendingRequest $request): void
     {
-        $apiKey = $request->call->request->apiKey();
-        $apiVersion = $request->version;
+        $apiKey = $request->request->apiKey();
+        $apiVersion = $request->requestVersion;
         $headerVersion = $apiKey->requestHeaderVersion($apiVersion);
 
         $payload = new Writer();
@@ -37,7 +37,7 @@ final readonly class WriteBuffer
 
         $header->encode($payload, $headerVersion);
 
-        $request->call->request->encode($payload, $apiVersion);
+        $request->request->encode($payload, $apiVersion);
 
         $frame = new Writer();
         $frame->writeInt32(\count($payload));

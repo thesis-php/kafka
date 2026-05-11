@@ -9,7 +9,7 @@ use Testo\Assert;
 use Testo\Test;
 use Thesis\Kafka\Protocol\Generated;
 
-final class AdminClientTest extends TestCase
+final readonly class AdminClientTest extends TestCase
 {
     #[Test]
     public function apiVersions(): void

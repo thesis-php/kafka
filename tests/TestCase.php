@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka;
 
-abstract class TestCase
+abstract readonly class TestCase
 {
     /** @var non-empty-list<non-empty-string> */
     final public const array SEEDS = [
@@ -14,10 +14,13 @@ abstract class TestCase
     ];
     final public const string CLUSTER_ID = '4L6g3nShT-eMCtK--X86sw';
 
-    final protected function createClient(): Client
+    /**
+     * @param non-empty-list<non-empty-string> $seeds
+     */
+    final protected function createClient(array $seeds = self::SEEDS): Client
     {
         return new Client(new Config(
-            seeds: self::SEEDS,
+            seeds: $seeds,
         ));
     }
 
