@@ -6,6 +6,10 @@ export CONTAINER_USER ?= $(shell id -u):$(shell id -g)
 
 RUN ?= $(if $(INSIDE_DEVCONTAINER),,$(DOCKER_COMPOSE) run --rm php)
 COMPOSER ?= $(RUN) composer
+TEST_SERVICES := \
+	kafka-1 kafka-2 kafka-3 \
+	zookeeper-apiversions-legacy kafka-apiversions-legacy \
+	kafka-plain-standalone kafka-scram-256-standalone kafka-scram-512-standalone
 
 ##
 ## Project
@@ -22,8 +26,12 @@ run: ## Run a command using the php container: `make run CMD='php --version'`
 .PHONY: run
 
 up: ## Docker compose up
-	$(DOCKER_COMPOSE) up --remove-orphans --build --detach $(ARGS)
+	$(DOCKER_COMPOSE) up --remove-orphans --build --detach --wait $(ARGS)
 .PHONY: up
+
+up-test-services: ## Docker compose up only Kafka services required for tests
+	$(DOCKER_COMPOSE) up --remove-orphans --build --detach --wait $(TEST_SERVICES)
+.PHONY: up-test-services
 
 down: ## Docker compose down
 	$(DOCKER_COMPOSE) down --remove-orphans $(ARGS)
@@ -125,11 +133,11 @@ phpstan: var vendor ## Analyze code using PHPStan
 	$(RUN) phpstan analyze --memory-limit=1G $(ARGS)
 .PHONY: phpstan
 
-test: var vendor up ## Run tests using Testo
+test: var vendor up-test-services ## Run tests using Testo
 	$(RUN) vendor/bin/testo $(ARGS)
 .PHONY: test
 
-infect: var vendor up ## Run mutation tests using Infection
+infect: var vendor up-test-services ## Run mutation tests using Infection
 	$(RUN) infection --show-mutations $(ARGS)
 .PHONY: infect
 

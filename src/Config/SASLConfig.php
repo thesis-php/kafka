@@ -12,12 +12,9 @@ use Thesis\Kafka\SASL;
 final readonly class SASLConfig
 {
     /**
-     * @param non-empty-string $username
-     * @param non-empty-string $password
+     * @param non-empty-list<SASL\Authenticator> $authenticators
      */
     public function __construct(
-        public SASL\Mechanism $mechanism,
-        public string $username,
-        public string $password,
+        public array $authenticators,
     ) {}
 }

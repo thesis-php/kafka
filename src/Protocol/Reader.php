@@ -8,6 +8,7 @@ use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Endian;
 use Thesis\Kafka\Exception\UnexpectedEof;
+use Thesis\Kafka\Exception\UnexpectedValue;
 use Thesis\Varint;
 
 /**
@@ -102,7 +103,7 @@ final class Reader
     {
         $length = $this->readInt16();
         if ($length < 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 "Non-nullable string had negative length {$length}",
             );
         }
@@ -118,7 +119,7 @@ final class Reader
         }
 
         if ($length < 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 "Invalid nullable string length {$length}",
             );
         }
@@ -130,7 +131,7 @@ final class Reader
     {
         $length = $this->readUnsignedVarint();
         if ($length === 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 'Non-nullable compact string had null marker',
             );
         }
@@ -156,7 +157,7 @@ final class Reader
     {
         $length = $this->readInt32();
         if ($length < 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 "Non-nullable bytes had negative length {$length}",
             );
         }
@@ -172,7 +173,7 @@ final class Reader
         }
 
         if ($length < 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 "Invalid nullable bytes length {$length}",
             );
         }
@@ -184,7 +185,7 @@ final class Reader
     {
         $length = $this->readUnsignedVarint();
         if ($length === 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 'Non-nullable compact bytes had null marker',
             );
         }
@@ -218,13 +219,13 @@ final class Reader
     {
         $length = $this->readInt32();
         if ($length === -1) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 'Non-nullable array had null marker',
             );
         }
 
         if ($length < 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 "Invalid array length {$length}",
             );
         }
@@ -243,7 +244,7 @@ final class Reader
         }
 
         if ($length < 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 "Invalid nullable array length {$length}",
             );
         }
@@ -258,7 +259,7 @@ final class Reader
     {
         $length = $this->readUnsignedVarint();
         if ($length === 0) {
-            throw new \UnexpectedValueException(
+            throw new UnexpectedValue(
                 'Non-nullable compact array had null marker',
             );
         }

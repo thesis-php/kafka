@@ -12,8 +12,8 @@ use Amp\Socket\Socket;
 use Revolt\EventLoop;
 use Thesis\Kafka\Config\Endpoint;
 use Thesis\Kafka\Exception\ConnectionClosed;
+use Thesis\Kafka\Exception\MalformedResponse;
 use Thesis\Kafka\Exception\NoCompatibleRequestVersion;
-use Thesis\Kafka\Exception\UnexpectedEof;
 use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\Protocol\Reader;
@@ -196,15 +196,16 @@ final class Connection
                         $request = $pending[$correlationId];
                         unset($pending[$correlationId]);
 
-                        $versions = [$request->responseVersion];
+                        $versions = [$request->requestVersion];
 
                         // ApiVersions bootstrap is the only place where we may decode the
                         // same response frame against two candidate body versions.
                         //
-                        // We start with the caller-supplied response version and, if that
-                        // decode reaches EOF, retry exactly once against the same bytes
-                        // using the request version. Re-parsing the already buffered frame
-                        // is cheaper than issuing a second network request just to discover
+                        // We first try the version that was actually sent on the wire and,
+                        // if that decode does not fit the received bytes, retry exactly
+                        // once against the same frame using the alternate bootstrap
+                        // response version. Re-parsing the already buffered frame is
+                        // cheaper than issuing a second network request just to discover
                         // which body shape the broker chose for this response.
                         //
                         // We keep this special case local to ApiVersions. Once the
@@ -212,7 +213,7 @@ final class Connection
                         // versions for all subsequent APIs and normal decoding becomes a
                         // single-pass operation with one known body version.
                         if ($request->request->apiKey() === Generated\ApiKey::ApiVersions && $request->requestVersion !== $request->responseVersion) {
-                            $versions[] = $request->requestVersion;
+                            $versions[] = $request->responseVersion;
                         }
 
                         $last = array_key_last($versions);
@@ -244,17 +245,20 @@ final class Connection
 
                                 break;
                             } catch (\Throwable $exception) {
-                                if (!$exception instanceof UnexpectedEof || $index === $last) {
+                                if (!$exception instanceof MalformedResponse || $index === $last) {
                                     $request->error($exception);
 
                                     break;
                                 }
 
                                 // Older brokers can answer a newer ApiVersions request with a
-                                // legacy-shaped response body. Rather than send a second
-                                // request, rewind to the start of the response body (right
-                                // after correlationId) and reinterpret this same frame using
-                                // the alternate version.
+                                // legacy-shaped response body. Likewise, decoding a legacy
+                                // body as a modern flexible version can fail either by
+                                // exhausting the frame or by tripping a compact/non-compact
+                                // invariant. Rather than send a second request, rewind to
+                                // the start of the response body (right after correlationId)
+                                // and reinterpret this same frame using the alternate
+                                // version.
                                 $reader->reset(4);
                             }
                         }
