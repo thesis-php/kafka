@@ -27,27 +27,18 @@ final readonly class PendingRequest
         public int $version,
     ) {}
 
-    /**
-     * @return R
-     */
-    public function decodeResponse(Reader $reader): Generated\Response
+    public function complete(Reader $reader): void
     {
         /** @var class-string<R> $responseType */
         $responseType = $this->call->request->responseType();
 
-        return $responseType::decode($reader, $this->version);
+        $response = $responseType::decode($reader, $this->version);
+
+        $this->deferred->complete($response);
     }
 
-    /**
-     * @param ?R $response
-     */
-    public function complete(?Generated\Response $response = null, ?\Throwable $exception = null): void
+    public function error(\Throwable $e): void
     {
-        if ($exception !== null) {
-            $this->deferred->error($exception);
-        } else {
-            \assert($response !== null);
-            $this->deferred->complete($response);
-        }
+        $this->deferred->error($e);
     }
 }

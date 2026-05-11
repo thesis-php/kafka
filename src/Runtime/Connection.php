@@ -15,9 +15,7 @@ use Revolt\EventLoop;
 use Thesis\Kafka\Config\Endpoint;
 use Thesis\Kafka\Exception\ConnectionClosed;
 use Thesis\Kafka\Exception\NoCompatibleRequestVersion;
-use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\KafkaException;
-use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\Protocol\Reader;
 
@@ -50,6 +48,9 @@ final class Connection
      * @var array<non-negative-int, Connection\PendingRequest<*>>
      */
     private array $pending = [];
+
+    /** @var list<\Closure(\Throwable): void> */
+    private array $onClose = [];
 
     private Connection\State $state = Connection\State::Idle;
 
@@ -129,6 +130,19 @@ final class Connection
         return $deferred->getFuture();
     }
 
+    /**
+     * @param \Closure(\Throwable): void $f
+     * @throws ConnectionClosed
+     */
+    public function onClose(\Closure $f): void
+    {
+        if ($this->state === Connection\State::Closed) {
+            throw new ConnectionClosed('Connection is closed.');
+        }
+
+        $this->onClose[] = $f;
+    }
+
     public function close(): void
     {
         if ($this->state === Connection\State::Running) {
@@ -145,57 +159,23 @@ final class Connection
      *     completes its deferred. Exits when the socket is closed.
      *   - writer: drains the outbound queue and writes framed requests
      *     into the socket. Exits when the queue is completed (close()).
-     *
-     * Both run for the lifetime of the connection.
      */
     private function run(): void
     {
         $pending = &$this->pending;
+        $onClose = &$this->onClose;
         $state = &$this->state;
         $send = $this->send;
         $socket = $this->socket;
         $endpoint = $this->endpoint;
 
-        $cleanup = static function (?\Throwable $exception = null) use (
-            &$pending,
-            &$state,
-            $send,
-            $endpoint,
-        ): void {
-            // The read loop has exited — the socket is gone, either because we
-            // closed it ourselves (close() was called) or because the broker
-            // closed it (idle timeout, network failure, broker shutdown).
-            // Either way, every in-flight request is now lost: the response
-            // will never arrive. Reject them so callers don't block forever.
-            $requests = $pending;
-            $pending = [];
-
-            if ($requests !== []) {
-                $exception ??= $state === Connection\State::Running
-                    ? new ConnectionClosed("Connection closed by the broker: {$endpoint}.")
-                    : new ConnectionClosed("Connection closed locally: {$endpoint}.");
-
-                foreach ($requests as $request) {
-                    $request->complete(exception: $exception);
-                }
-            }
-
-            // Wake the writer coroutine if it's still draining the queue. When state
-            // is Running, only the read loop has exited (broker closed the socket);
-            // close() hasn't been called and hasn't completed the queue yet, so we
-            // do it here. When state is Closed, close() already called complete()
-            // and a second call would throw.
-            if ($state === Connection\State::Running) {
-                $send->complete();
-            }
-
-            $state = Connection\State::Closed;
-        };
-
         EventLoop::queue(static function () use (
             &$pending,
+            &$onClose,
+            &$state,
             $socket,
-            $cleanup,
+            $endpoint,
+            $send,
         ): void {
             $buffer = new Connection\ReadBuffer();
 
@@ -216,13 +196,65 @@ final class Connection
                         $request = $pending[$correlationId];
                         unset($pending[$correlationId]);
 
-                        self::completeRequest($request, $reader);
+                        try {
+                            $headerVersion = $request->call->request
+                                ->apiKey()
+                                ->responseHeaderVersion($request->version);
+
+                            // Response header v1+ ends with a flexible-versions tagged-fields
+                            // trailer. We don't currently emit or interpret any tagged fields
+                            // at the header level, so we just consume them.
+                            //
+                            // Note: ApiVersionsResponse is a special case in the protocol — its
+                            // body uses flexible versions but its header is always v0. The
+                            // responseHeaderVersion() method on ApiKey hardcodes that.
+                            if ($headerVersion >= 1) {
+                                $reader->readTaggedFields();
+                            }
+
+                            $request->complete($reader);
+                        } catch (\Throwable $e) {
+                            $request->error($e);
+                        }
                     }
                 }
             } catch (\Throwable $exception) {
-                $cleanup($exception);
             } finally {
-                $cleanup();
+                // The read loop has exited — the socket is gone, either because we
+                // closed it ourselves (close() was called) or because the broker
+                // closed it (idle timeout, network failure, broker shutdown).
+                // Either way, every in-flight request is now lost: the response
+                // will never arrive. Reject them so callers don't block forever.
+                $requests = $pending;
+                $pending = [];
+
+                $callbacks = $onClose;
+                $onClose = [];
+
+                if ($requests !== [] || $callbacks !== []) {
+                    $exception ??= $state === Connection\State::Running
+                        ? new ConnectionClosed("Connection closed by the broker: {$endpoint}.")
+                        : new ConnectionClosed("Connection closed locally: {$endpoint}.");
+
+                    foreach ($requests as $request) {
+                        $request->error($exception);
+                    }
+
+                    foreach ($callbacks as $callback) {
+                        $callback($exception);
+                    }
+                }
+
+                // Wake the writer coroutine if it's still draining the queue. When state
+                // is Running, only the read loop has exited (broker closed the socket);
+                // close() hasn't been called and hasn't completed the queue yet, so we
+                // do it here. When state is Closed, close() already called complete()
+                // and a second call would throw.
+                if ($state === Connection\State::Running) {
+                    $send->complete();
+                }
+
+                $state = Connection\State::Closed;
             }
         });
 
@@ -241,49 +273,5 @@ final class Connection
         });
 
         $this->state = Connection\State::Running;
-    }
-
-    /**
-     * Decodes the response from the wire, runs error extraction, and
-     * completes the pending request's deferred — either with the
-     * decoded response, or with a ProtocolError if the broker reported
-     * any errors, or with whatever exception was raised during decode.
-     *
-     * @param Connection\PendingRequest<*> $request
-     */
-    private static function completeRequest(
-        Connection\PendingRequest $request,
-        Reader $reader,
-    ): void {
-        $response = null;
-        $exception = null;
-
-        try {
-            $headerVersion = $request->call->request
-                ->apiKey()
-                ->responseHeaderVersion($request->version);
-
-            // Response header v1+ ends with a flexible-versions tagged-fields
-            // trailer. We don't currently emit or interpret any tagged fields
-            // at the header level, so we just consume them.
-            //
-            // Note: ApiVersionsResponse is a special case in the protocol — its
-            // body uses flexible versions but its header is always v0. The
-            // responseHeaderVersion() method on ApiKey hardcodes that.
-            if ($headerVersion >= 1) {
-                $reader->readTaggedFields();
-            }
-
-            $response = $request->decodeResponse($reader);
-
-            $errors = Errors::for($response);
-            if (\count($errors) > 0) {
-                $exception = new ProtocolError($errors);
-            }
-        } catch (\Throwable $e) {
-            $exception = $e;
-        }
-
-        $request->complete($response, $exception); // @phpstan-ignore argument.type
     }
 }
