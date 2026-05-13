@@ -67,6 +67,13 @@ final class Writer implements
         $this->buffer .= Varint\BcMath::Codec->encodeVarint(new Number($value));
     }
 
+    public function writeVarint(int $value): void
+    {
+        $this->buffer .= Varint\BcMath::Codec->encodeVarint(
+            Varint\BcMath::Codec->encodeZigZag(new Number($value)),
+        );
+    }
+
     public function writeString(string $value): void
     {
         $length = \strlen($value);
@@ -109,6 +116,16 @@ final class Writer implements
         $this->writeCompactString($value);
     }
 
+    public function writeVarintString(string $value): void
+    {
+        $length = \strlen($value);
+        $this->writeVarint($length);
+
+        if ($length > 0) {
+            $this->buffer .= $value;
+        }
+    }
+
     public function writeBytes(string $value): void
     {
         $length = \strlen($value);
@@ -149,6 +166,27 @@ final class Writer implements
         }
 
         $this->writeCompactBytes($value);
+    }
+
+    public function writeVarintBytes(?string $value): void
+    {
+        if ($value === null) {
+            $this->writeVarint(-1);
+
+            return;
+        }
+
+        $length = \strlen($value);
+        $this->writeVarint($length);
+
+        if ($length > 0) {
+            $this->buffer .= $value;
+        }
+    }
+
+    public function write(string $value): void
+    {
+        $this->buffer .= $value;
     }
 
     public function writeUuid(UuidInterface $value): void

@@ -99,6 +99,17 @@ final class Reader
         return (int) $sized->value->value;
     }
 
+    public function readVarint(): int
+    {
+        $buffer = substr($this->buffer, $this->offset);
+        \assert($buffer !== '');
+
+        $sized = Varint\BcMath::Codec->decodeVarintSized($buffer);
+        $this->offset += $sized->size;
+
+        return (int) Varint\BcMath::Codec->decodeZigZag($sized->value)->value;
+    }
+
     public function readString(): string
     {
         $length = $this->readInt16();
@@ -153,6 +164,18 @@ final class Reader
         return $length === 0 ? '' : $this->read($length);
     }
 
+    public function readVarintString(): string
+    {
+        $length = $this->readVarint();
+        if ($length < 0) {
+            throw new UnexpectedValue(
+                "Non-nullable varint string had negative length {$length}",
+            );
+        }
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
     public function readBytes(): string
     {
         $length = $this->readInt32();
@@ -203,6 +226,33 @@ final class Reader
         }
 
         --$length;
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readVarintBytes(): ?string
+    {
+        $length = $this->readVarint();
+        if ($length === -1) {
+            return null;
+        }
+
+        if ($length < 0) {
+            throw new UnexpectedValue(
+                "Invalid varint bytes length {$length}",
+            );
+        }
+
+        return $length === 0 ? '' : $this->read($length);
+    }
+
+    public function readBytesLength(int $length): string
+    {
+        if ($length < 0) {
+            throw new UnexpectedValue(
+                "Invalid bytes length {$length}",
+            );
+        }
 
         return $length === 0 ? '' : $this->read($length);
     }
