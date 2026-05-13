@@ -27,6 +27,7 @@
         "ramsey/uuid": "^4.9",
         "revolt/event-loop": "^1.0",
         "thesis/endian": "^0.3.3",
+        "thesis/exceptionally": "^0.3.0",
         "thesis/package-version": "^0.1.2",
         "thesis/time-span": "^0.2.3",
         "thesis/varint": "^0.2.0"
@@ -44,7 +45,10 @@
     "autoload": {
         "psr-4": {
             "Thesis\\Kafka\\": "src/"
-        }
+        },
+        "files": [
+            "src/Protocol/Compressor/compression.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {
