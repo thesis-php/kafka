@@ -26,7 +26,7 @@ run: ## Run a command using the php container: `make run CMD='php --version'`
 .PHONY: run
 
 up: ## Docker compose up
-	$(DOCKER_COMPOSE) up --remove-orphans --build --detach --wait $(ARGS)
+	$(DOCKER_COMPOSE) up --remove-orphans --build --detach $(ARGS)
 .PHONY: up
 
 up-test-services: ## Docker compose up only Kafka services required for tests
@@ -108,6 +108,10 @@ sync-schemas:
 	        --wildcards \
 	        "kafka-$(KAFKA_VERSION)/clients/src/main/resources/common/message/*.json"
 	@echo "Done. Updated to $(KAFKA_VERSION)."
+
+.PHONY: generate
+generate:
+	$(RUN) php generator/generate.php
 
 ##
 ## Tools
