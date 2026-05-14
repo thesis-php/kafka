@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Partitioner;
 
+use Random\Randomizer;
 use Testo\Assert;
 use Testo\Test;
 use Thesis\Kafka\ProducerRecord;
@@ -13,7 +14,7 @@ final class RandomTopicPartitionerTest
     #[Test]
     public function returnsZeroForSinglePartition(): void
     {
-        $partitioner = new RandomPartitioner()->forTopic('x');
+        $partitioner = new RandomTopicPartitioner(new Randomizer());
 
         Assert::int($partitioner->partition(new ProducerRecord(), 1))->lessThanOrEqual(0);
     }
@@ -21,7 +22,7 @@ final class RandomTopicPartitionerTest
     #[Test]
     public function sticksToChosenPartitionUntilRotate(): void
     {
-        $partitioner = new RandomPartitioner()->forTopic('x');
+        $partitioner = new RandomTopicPartitioner(new Randomizer());
         $record = new ProducerRecord();
         $partition = $partitioner->partition($record, 3);
 
@@ -35,8 +36,7 @@ final class RandomTopicPartitionerTest
     #[Test]
     public function rotateMovesAwayFromCurrentPartition(): void
     {
-        /** @var RandomTopicPartitioner $partitioner */
-        $partitioner = new RandomPartitioner()->forTopic('x');
+        $partitioner = new RandomTopicPartitioner(new Randomizer());
         $record = new ProducerRecord();
 
         $current = $partitioner->partition($record, 3);
@@ -52,8 +52,7 @@ final class RandomTopicPartitionerTest
     #[Test]
     public function rotateIgnoresForeignPartition(): void
     {
-        /** @var RandomTopicPartitioner $partitioner */
-        $partitioner = new RandomPartitioner()->forTopic('x');
+        $partitioner = new RandomTopicPartitioner(new Randomizer());
         $record = new ProducerRecord();
 
         $current = $partitioner->partition($record, 3);
@@ -67,8 +66,7 @@ final class RandomTopicPartitionerTest
     #[Test]
     public function repicksIfStickyPartitionFallsOutOfRange(): void
     {
-        /** @var RandomTopicPartitioner $partitioner */
-        $partitioner = new RandomPartitioner()->forTopic('x');
+        $partitioner = new RandomTopicPartitioner(new Randomizer());
         $record = new ProducerRecord();
 
         $current = $partitioner->partition($record, 3);
