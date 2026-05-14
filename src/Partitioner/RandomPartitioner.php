@@ -6,7 +6,7 @@ namespace Thesis\Kafka\Partitioner;
 
 use Random\Randomizer;
 use Thesis\Kafka\Partitioner;
-use Thesis\Kafka\ProducerRecord;
+use Thesis\Kafka\TopicPartitioner;
 
 /**
  * @api
@@ -18,9 +18,8 @@ final readonly class RandomPartitioner implements Partitioner
     ) {}
 
     #[\Override]
-    public function partition(ProducerRecord $record, int $partitionCount): int
+    public function forTopic(string $topic): TopicPartitioner
     {
-        /** @var non-negative-int */
-        return $this->randomizer->getInt(0, $partitionCount - 1);
+        return new RandomTopicPartitioner($this->randomizer);
     }
 }
