@@ -13,7 +13,7 @@ final class RoundRobinTopicPartitionerTest
     #[Test]
     public function returnsZeroForSinglePartition(): void
     {
-        $partitioner = new RoundRobinTopicPartitioner();
+        $partitioner = new RoundRobinPartitioner()->forTopic('x');
 
         Assert::same($partitioner->partition(new ProducerRecord(), 1), 0);
     }
@@ -21,7 +21,7 @@ final class RoundRobinTopicPartitionerTest
     #[Test]
     public function startsAtZeroAndSticksUntilRotate(): void
     {
-        $partitioner = new RoundRobinTopicPartitioner();
+        $partitioner = new RoundRobinPartitioner()->forTopic('x');
         $record = new ProducerRecord();
 
         Assert::same($partitioner->partition($record, 3), 0);
@@ -34,7 +34,8 @@ final class RoundRobinTopicPartitionerTest
     #[Test]
     public function rotateMovesToNextPartition(): void
     {
-        $partitioner = new RoundRobinTopicPartitioner();
+        /** @var RoundRobinTopicPartitioner $partitioner */
+        $partitioner = new RoundRobinPartitioner()->forTopic('x');
         $record = new ProducerRecord();
 
         Assert::same($partitioner->partition($record, 3), 0);
@@ -52,7 +53,8 @@ final class RoundRobinTopicPartitionerTest
     #[Test]
     public function rotateIgnoresForeignPartition(): void
     {
-        $partitioner = new RoundRobinTopicPartitioner();
+        /** @var RoundRobinTopicPartitioner $partitioner */
+        $partitioner = new RoundRobinPartitioner()->forTopic('x');
         $record = new ProducerRecord();
 
         Assert::same($partitioner->partition($record, 3), 0);
@@ -65,7 +67,8 @@ final class RoundRobinTopicPartitionerTest
     #[Test]
     public function repicksIfStickyPartitionFallsOutOfRange(): void
     {
-        $partitioner = new RoundRobinTopicPartitioner();
+        /** @var RoundRobinTopicPartitioner $partitioner */
+        $partitioner = new RoundRobinPartitioner()->forTopic('x');
         $record = new ProducerRecord();
 
         Assert::same($partitioner->partition($record, 3), 0);

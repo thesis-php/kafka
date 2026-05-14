@@ -25,7 +25,7 @@ new PhpCsFixerCodingStandard()->applyTo($config, [
     'numeric_literal_separator' => false,
     'blank_line_before_statement' => false,
     'phpdoc_annotation_without_dot' => false,
-    // 'rule' => ['overridden' => 'config'],
+    'fully_qualified_strict_types' => false,
 ]);
 
 return $config;

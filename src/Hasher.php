@@ -9,8 +9,5 @@ namespace Thesis\Kafka;
  */
 interface Hasher
 {
-    /**
-     * @param non-empty-string $key
-     */
     public function hash(string $key): int;
 }
