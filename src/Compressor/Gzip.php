@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol\Compressor;
+namespace Thesis\Kafka\Compressor;
 
+use Thesis\Kafka\Compressor;
 use Thesis\Kafka\Exception\MissingExtension;
-use Thesis\Kafka\Protocol;
 
 /**
  * @api
  */
-final readonly class Gzip implements Protocol\Compressor
+final readonly class Gzip implements Compressor
 {
     /**
      * @throws MissingExtension

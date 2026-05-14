@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol;
+namespace Thesis\Kafka;
 
 /**
  * @api

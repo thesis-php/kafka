@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol\Crc32;
+namespace Thesis\Kafka\Crc32;
 
-use Thesis\Kafka\Protocol\Crc32;
+use Thesis\Kafka\Crc32;
 
 /**
  * @api

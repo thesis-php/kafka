@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol\Compressor;
+namespace Thesis\Kafka\Compressor;
 
 use Thesis\Kafka\Exception\CompressionFailed;
 use function Thesis\exceptionally;

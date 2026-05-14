@@ -2,17 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol;
+namespace Thesis\Kafka;
 
 use Thesis\Kafka\Exception\CompressionFailed;
-use Thesis\Kafka\Protocol\Compressor\Codec;
 
 /**
  * @api
  */
 interface Compressor
 {
-    public function codec(): Codec;
+    public function codec(): Compressor\Codec;
 
     /**
      * @param non-empty-string $data

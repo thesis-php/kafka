@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Record;
 
+use Thesis\Kafka\Compressor;
+use Thesis\Kafka\Crc32;
 use Thesis\Kafka\Exception\CompressionFailed;
 use Thesis\Kafka\ProducerRecord;
-use Thesis\Kafka\Protocol\Compressor;
-use Thesis\Kafka\Protocol\Crc32;
 use Thesis\Kafka\Protocol\Writer;
 
 /**

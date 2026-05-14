@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol\Record;
 
-use Thesis\Kafka\Protocol\Compressor\Codec;
+use Thesis\Kafka\Compressor\Codec;
 
 /**
  * @internal
