@@ -31,8 +31,8 @@ final readonly class ProducerRecord
      * @param ?non-negative-int $timestamp in milliseconds
      */
     public function __construct(
+        public ?string $value,
         public ?string $key = null,
-        public ?string $value = null,
         public ?string $topic = null,
         public array $headers = [],
         public ?int $partition = null,

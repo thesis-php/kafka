@@ -15,14 +15,14 @@ final class RoundRobinTopicPartitionerTest
     {
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
 
-        Assert::same($partitioner->partition(new ProducerRecord(), 1), 0);
+        Assert::same($partitioner->partition(new ProducerRecord(value: null), 1), 0);
     }
 
     #[Test]
     public function startsAtZeroAndSticksUntilRotate(): void
     {
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProducerRecord();
+        $record = new ProducerRecord(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -36,7 +36,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProducerRecord();
+        $record = new ProducerRecord(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -55,7 +55,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProducerRecord();
+        $record = new ProducerRecord(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -69,7 +69,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProducerRecord();
+        $record = new ProducerRecord(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 

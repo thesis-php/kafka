@@ -15,14 +15,14 @@ final class RandomTopicPartitionerTest
     {
         $partitioner = new RandomPartitioner()->forTopic('x');
 
-        Assert::int($partitioner->partition(new ProducerRecord(), 1))->lessThanOrEqual(0);
+        Assert::int($partitioner->partition(new ProducerRecord(value: null), 1))->lessThanOrEqual(0);
     }
 
     #[Test]
     public function sticksToChosenPartitionUntilRotate(): void
     {
         $partitioner = new RandomPartitioner()->forTopic('x');
-        $record = new ProducerRecord();
+        $record = new ProducerRecord(value: null);
         $partition = $partitioner->partition($record, 3);
 
         Assert::int($partition)->between(0, 3);
@@ -37,7 +37,7 @@ final class RandomTopicPartitionerTest
     {
         /** @var RandomTopicPartitioner $partitioner */
         $partitioner = new RandomPartitioner()->forTopic('x');
-        $record = new ProducerRecord();
+        $record = new ProducerRecord(value: null);
 
         $current = $partitioner->partition($record, 3);
         $partitioner->rotate($current, 3);
@@ -54,7 +54,7 @@ final class RandomTopicPartitionerTest
     {
         /** @var RandomTopicPartitioner $partitioner */
         $partitioner = new RandomPartitioner()->forTopic('x');
-        $record = new ProducerRecord();
+        $record = new ProducerRecord(value: null);
 
         $current = $partitioner->partition($record, 3);
         $foreign = ($current + 1) % 3;
@@ -69,7 +69,7 @@ final class RandomTopicPartitionerTest
     {
         /** @var RandomTopicPartitioner $partitioner */
         $partitioner = new RandomPartitioner()->forTopic('x');
-        $record = new ProducerRecord();
+        $record = new ProducerRecord(value: null);
 
         $current = $partitioner->partition($record, 3);
         $partitioner->rotate($current, 3);
