@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Runtime\Cluster;
+namespace Thesis\Kafka\Internal\Cluster;
 
 use Thesis\Kafka\Config\Endpoint;
 use Thesis\Kafka\Protocol\Generated;

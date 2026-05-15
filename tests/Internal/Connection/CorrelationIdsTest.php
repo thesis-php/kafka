@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Runtime\Connection;
+namespace Thesis\Kafka\Internal\Connection;
 
 use Testo\Assert;
 use Testo\Test;

@@ -13,12 +13,12 @@ use Thesis\Kafka\Protocol\Generated;
  */
 final readonly class Client
 {
-    private Runtime\Cluster $cluster;
+    private Internal\Cluster $cluster;
 
     public function __construct(
         public Config $config,
     ) {
-        $this->cluster = new Runtime\Cluster($config);
+        $this->cluster = new Internal\Cluster($config);
     }
 
     /**

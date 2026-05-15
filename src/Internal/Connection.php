@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Runtime;
+namespace Thesis\Kafka\Internal;
 
 use Amp\Cancellation;
 use Amp\DeferredFuture;

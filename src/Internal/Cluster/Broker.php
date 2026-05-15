@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Runtime\Cluster;
+namespace Thesis\Kafka\Internal\Cluster;
 
 use Amp\Cancellation;
+use Thesis\Kafka\Internal;
 use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\Generated;
-use Thesis\Kafka\Runtime;
 
 /**
  * @internal
@@ -17,7 +17,7 @@ final readonly class Broker
     public const int NOT_A_BROKER_ID = -1;
 
     public static function unknown(
-        Runtime\Connection $connection,
+        Internal\Connection $connection,
     ): self {
         return new self(
             id: self::NOT_A_BROKER_ID,
@@ -27,7 +27,7 @@ final readonly class Broker
 
     public function __construct(
         public int $id,
-        public Runtime\Connection $connection,
+        public Internal\Connection $connection,
     ) {}
 
     /**
@@ -39,7 +39,7 @@ final readonly class Broker
     public function request(Generated\Request $request, Cancellation $cancellation): Generated\Response
     {
         return$this->connection->call(
-            new Runtime\Connection\Call($request),
+            new Internal\Connection\Call($request),
             $cancellation,
         );
     }

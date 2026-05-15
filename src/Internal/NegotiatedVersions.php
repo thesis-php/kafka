@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Runtime;
+namespace Thesis\Kafka\Internal;
 
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\Protocol\VersionRange;

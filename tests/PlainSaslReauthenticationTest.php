@@ -11,8 +11,8 @@ use Testo\Test;
 use Thesis\Kafka\Config\Endpoint;
 use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\ConnectionClosed;
-use Thesis\Kafka\Runtime\Connection;
-use Thesis\Kafka\Runtime\ConnectionFactory;
+use Thesis\Kafka\Internal\Connection;
+use Thesis\Kafka\Internal\ConnectionFactory;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
 use function Amp\delay;
 
