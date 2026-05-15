@@ -2,9 +2,57 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Connection;
+namespace Thesis\Kafka\Internal\Time;
 
 use Random\Randomizer;
+
+/**
+ * @internal
+ */
+final readonly class Duration
+{
+    public static function now(): self
+    {
+        /** @var positive-int $ms */
+        $ms = intdiv((int) hrtime(true), 1_000_000);
+
+        return new self($ms);
+    }
+
+    /**
+     * @param non-negative-int $milliseconds
+     */
+    public function __construct(
+        public int $milliseconds,
+    ) {}
+
+    /**
+     * @return non-negative-int
+     */
+    public function elapsed(?self $since = null): int
+    {
+        $since ??= self::now();
+        \assert($since->milliseconds >= $this->milliseconds);
+
+        /** @var non-negative-int */
+        return $since->milliseconds - $this->milliseconds;
+    }
+
+    public function inFuture(?self $comparator = null): bool
+    {
+        $comparator ??= self::now();
+
+        return $this->milliseconds > $comparator->milliseconds;
+    }
+}
+
+/**
+ * @internal
+ */
+function now(): Duration
+{
+    return Duration::now();
+}
 
 /**
  * @see https://github.com/twmb/franz-go/blob/master/pkg/kgo/broker.go `broker.doSasl` for reference
@@ -28,13 +76,12 @@ use Random\Randomizer;
  * @internal
  * @param non-negative-int $requestStartMs
  * @param non-negative-int $requestDurationMs
- * @return non-negative-int
  */
 function calculateSessionExpiration(
     int $requestStartMs,
     int $requestDurationMs,
     int $sessionLifetimeMs,
-): int {
+): Duration {
     /** @var ?Randomizer $randomizer */
     static $randomizer;
     $randomizer ??= new Randomizer();
@@ -51,29 +98,5 @@ function calculateSessionExpiration(
     $reauthenticateInMs = $sessionLifetimeMs - (int) ceil($pessimismMs);
     $reauthenticateInMs = max($reauthenticateInMs, 0);
 
-    return $requestStartMs + $reauthenticateInMs;
-}
-
-/**
- * @internal
- * @return positive-int
- */
-function now(): int
-{
-    /** @var positive-int */
-    return intdiv((int) hrtime(true), 1_000_000);
-}
-
-/**
- * @internal
- * @param non-negative-int $before
- * @param non-negative-int $after
- * @return non-negative-int
- */
-function elapsed(int $before, int $after): int
-{
-    \assert($after >= $before);
-
-    /** @var non-negative-int */
-    return intdiv($after - $before, 1_000_000);
+    return new Duration($requestStartMs + $reauthenticateInMs);
 }

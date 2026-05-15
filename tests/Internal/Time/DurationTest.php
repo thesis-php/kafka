@@ -2,13 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Connection;
+namespace Thesis\Kafka\Internal\Time;
 
 use Testo\Assert;
 use Testo\Data\DataSet;
 use Testo\Test;
 
-final class FunctionsTest
+/**
+ * @api
+ */
+final class DurationTest
 {
     /**
      * @param non-negative-int $reqMs
@@ -32,6 +35,6 @@ final class FunctionsTest
             sessionLifetimeMs: $sessionLifetimeMs,
         );
 
-        Assert::int($expiration)->between($minExpected, $maxExpected);
+        Assert::int($expiration->milliseconds)->between($minExpected, $maxExpected);
     }
 }

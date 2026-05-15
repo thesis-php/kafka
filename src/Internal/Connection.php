@@ -64,8 +64,7 @@ final class Connection
     /** @var ?Future<null> */
     private ?Future $refreshSession = null;
 
-    /** @var non-negative-int */
-    private int $sessionExpiresMs = 0;
+    private ?Time\Duration $sessionExpires = null;
 
     public function __construct(
         private readonly Socket $socket,
@@ -295,7 +294,7 @@ final class Connection
             return;
         }
 
-        if ($this->sessionExpiresMs === 0 || $this->sessionExpiresMs > Connection\now()) {
+        if ($this->sessionExpires === null || $this->sessionExpires->inFuture()) {
             return;
         }
 
@@ -321,7 +320,7 @@ final class Connection
         $session = $authenticator->authenticate();
         $exchange = $session->start();
         $step = 0;
-        $requestStartMs = Connection\now();
+        $requestDuration = Time\now();
         $sessionLifetimeMs = 0;
 
         // Once the mechanism has been accepted by SaslHandshake, authentication
@@ -352,17 +351,15 @@ final class Connection
             $exchange = $session->challenge(++$step, $response->authBytes);
         }
 
-        $requestDurationMs = Connection\elapsed($requestStartMs, Connection\now());
-
         if ($sessionLifetimeMs > 0) {
             // KIP-368 allows the broker to advertise a finite SASL session
             // lifetime. Once that deadline is reached, the connection must be
             // used for re-authentication before we send the next ordinary Kafka
             // request, so we turn the broker-provided lifetime into a monotonic
             // local deadline and intentionally schedule it a little early.
-            $this->sessionExpiresMs = Connection\calculateSessionExpiration(
-                requestStartMs: $requestStartMs,
-                requestDurationMs: $requestDurationMs,
+            $this->sessionExpires = Time\calculateSessionExpiration(
+                requestStartMs: $requestDuration->milliseconds,
+                requestDurationMs: $requestDuration->elapsed(),
                 sessionLifetimeMs: $sessionLifetimeMs,
             );
         }

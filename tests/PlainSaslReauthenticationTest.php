@@ -13,6 +13,7 @@ use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\ConnectionClosed;
 use Thesis\Kafka\Internal\Connection;
 use Thesis\Kafka\Internal\ConnectionFactory;
+use Thesis\Kafka\Internal\Time;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
 use function Amp\delay;
 
@@ -36,13 +37,13 @@ final readonly class PlainSaslReauthenticationTest extends TestCase
             new NullCancellation(),
         );
 
-        $initialExpiry = $this->sessionExpiresMs($connection);
+        $initialExpiry = $this->sessionExpires($connection);
 
-        Assert::int($initialExpiry)->greaterThan(Connection\now());
+        Assert::int($initialExpiry)->greaterThan(Time\now()->milliseconds);
 
         /** @var non-negative-int $expiredAt */
-        $expiredAt = Connection\now() - 1;
-        $this->forceSessionExpiresMs($connection, $expiredAt);
+        $expiredAt = Time\now()->milliseconds - 1;
+        $this->forceSessionExpires($connection, $expiredAt);
 
         $response = $connection->call(
             new Connection\Call(
@@ -53,9 +54,9 @@ final readonly class PlainSaslReauthenticationTest extends TestCase
         Assert::same($response->errorCode, 0);
         Assert::count($response->brokers, 1);
 
-        $refreshedExpiry = $this->sessionExpiresMs($connection);
+        $refreshedExpiry = $this->sessionExpires($connection);
 
-        Assert::int($refreshedExpiry)->greaterThan(Connection\now());
+        Assert::int($refreshedExpiry)->greaterThan(Time\now()->milliseconds);
         Assert::int($refreshedExpiry)->greaterThan($expiredAt);
 
         $connection->close();
@@ -79,42 +80,41 @@ final readonly class PlainSaslReauthenticationTest extends TestCase
             new NullCancellation(),
         );
 
-        $this->forceSessionExpiresMs($connection, 0);
+        $this->forceSessionExpires($connection, null);
 
         delay(2.5);
 
         Expect::exception(ConnectionClosed::class)
             ->fromMethod(Connection::class, 'call');
 
-        try {
-            $connection->call(
-                new Connection\Call(
-                    request: $this->metadataRequest(),
-                ),
-            );
-        } finally {
-            $connection->close();
-        }
+        $connection->call(
+            new Connection\Call(
+                request: $this->metadataRequest(),
+            ),
+        );
     }
 
-    private function sessionExpiresMs(Connection $connection): int
+    private function sessionExpires(Connection $connection): int
     {
-        $expires = $this->sessionExpiresMsProperty()->getValue($connection);
-        \assert(\is_int($expires));
+        /** @var ?Time\Duration $expires */
+        $expires = $this->sessionExpiresProperty()->getValue($connection);
+        \assert($expires !== null);
 
-        return $expires;
+        return $expires->milliseconds;
     }
 
     /**
-     * @param non-negative-int $expiresMs
      */
-    private function forceSessionExpiresMs(Connection $connection, int $expiresMs): void
+    private function forceSessionExpires(Connection $connection, ?int $expiresMs): void
     {
-        $this->sessionExpiresMsProperty()->setValue($connection, $expiresMs);
+        $this->sessionExpiresProperty()->setValue(
+            $connection,
+            $expiresMs === null ? null : new Time\Duration($expiresMs),
+        );
     }
 
-    private function sessionExpiresMsProperty(): \ReflectionProperty
+    private function sessionExpiresProperty(): \ReflectionProperty
     {
-        return new \ReflectionProperty(Connection::class, 'sessionExpiresMs');
+        return new \ReflectionProperty(Connection::class, 'sessionExpires');
     }
 }

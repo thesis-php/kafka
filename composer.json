@@ -49,7 +49,7 @@
         },
         "files": [
             "src/Compressor/compression.php",
-            "src/Internal/Connection/functions.php"
+            "src/Internal/Time/Duration.php"
         ]
     },
     "autoload-dev": {
