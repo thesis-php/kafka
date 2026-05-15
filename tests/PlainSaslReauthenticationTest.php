@@ -104,6 +104,7 @@ final readonly class PlainSaslReauthenticationTest extends TestCase
     }
 
     /**
+     * @param ?non-negative-int $expiresMs
      */
     private function forceSessionExpires(Connection $connection, ?int $expiresMs): void
     {
