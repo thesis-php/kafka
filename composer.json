@@ -48,7 +48,8 @@
             "Thesis\\Kafka\\": "src/"
         },
         "files": [
-            "src/Compressor/compression.php"
+            "src/Compressor/compression.php",
+            "src/Runtime/Connection/functions.php"
         ]
     },
     "autoload-dev": {

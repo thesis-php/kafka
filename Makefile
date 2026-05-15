@@ -9,7 +9,7 @@ COMPOSER ?= $(RUN) composer
 TEST_SERVICES := \
 	kafka-1 kafka-2 kafka-3 \
 	zookeeper-apiversions-legacy kafka-apiversions-legacy \
-	kafka-plain-standalone kafka-scram-256-standalone kafka-scram-512-standalone
+	kafka-plain-standalone kafka-scram-256-standalone kafka-scram-512-standalone kafka-plain-reauth-standalone
 
 ##
 ## Project

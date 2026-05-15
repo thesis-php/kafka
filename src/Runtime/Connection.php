@@ -6,17 +6,25 @@ namespace Thesis\Kafka\Runtime;
 
 use Amp\Cancellation;
 use Amp\DeferredFuture;
+use Amp\Future;
 use Amp\NullCancellation;
 use Amp\Pipeline;
 use Amp\Socket\Socket;
 use Revolt\EventLoop;
+use Thesis\Kafka\Config;
 use Thesis\Kafka\Config\Endpoint;
 use Thesis\Kafka\Exception\ConnectionClosed;
 use Thesis\Kafka\Exception\MalformedResponse;
 use Thesis\Kafka\Exception\NoCompatibleRequestVersion;
+use Thesis\Kafka\Exception\NoCompatibleSaslMechanism;
+use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\KafkaException;
+use Thesis\Kafka\Protocol\ErrorCode;
+use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\Protocol\Reader;
+use Thesis\Kafka\SASL;
+use function Amp\async;
 
 /**
  * @internal
@@ -53,10 +61,17 @@ final class Connection
 
     private Connection\State $state = Connection\State::Idle;
 
+    /** @var ?Future<null> */
+    private ?Future $refreshSession = null;
+
+    /** @var non-negative-int */
+    private int $sessionExpiresMs = 0;
+
     public function __construct(
         private readonly Socket $socket,
+        private readonly Config $config,
         public readonly Endpoint $endpoint,
-        public readonly NegotiatedVersions $versions = new NegotiatedVersions(),
+        private readonly NegotiatedVersions $versions = new NegotiatedVersions(),
         int $sendBufferSize = self::SEND_BUFFER_SIZE,
     ) {
         $this->correlation = new Connection\CorrelationIds();
@@ -81,6 +96,18 @@ final class Connection
         if ($this->state === Connection\State::Idle) {
             $this->run();
         }
+
+        // Re-authentication is triggered "synchronously" at the point where a
+        // caller is about to send a new application request. This matches
+        // KIP-368 more naturally than trying to refresh from the background
+        // reader / writer loops: once the SASL session has expired, the next
+        // ordinary request must wait until the connection is re-authenticated.
+        //
+        // refreshSession() is safe to call concurrently. Internally it
+        // coalesces concurrent refresh attempts behind one shared Future, so
+        // only one coroutine performs the SASL exchange while all other
+        // callers await the same result.
+        $this->refreshSession($cancellation, $call->request->apiKey());
 
         // A Call may carry an explicit version (used during the bootstrap
         // ApiVersions handshake, where we hard-code v0 because the negotiated
@@ -131,6 +158,111 @@ final class Connection
     }
 
     /**
+     * @throws KafkaException
+     */
+    public function versionsHandshake(Cancellation $cancellation): void
+    {
+        // ApiVersions is the only request we can send before the connection has
+        // any negotiated protocol state. We start at v4 because modern brokers
+        // support it and can return richer version metadata. If the broker
+        // answers with UNSUPPORTED_VERSION, we fall back once to v0 — the
+        // conservative baseline expected to work on older brokers.
+        //
+        // The Connection read path already knows how to reinterpret the same
+        // ApiVersions response frame across legacy and modern body shapes, so
+        // this method only decides whether a second wire request is necessary.
+        //
+        // We do not share negotiated versions across connections: each new
+        // socket performs its own bootstrap and seeds its own version map
+        // (KIP-511).
+        $request = new Generated\ApiVersionsRequest(
+            clientSoftwareName: $this->config->clientSoftwareName,
+            clientSoftwareVersion: $this->config->clientSoftwareVersion,
+        );
+
+        $versions = [4, 0];
+        $last = array_key_last($versions);
+
+        foreach ($versions as $index => $version) {
+            $response = $this
+                ->call(
+                    new Connection\Call(
+                        request: $request,
+                        requestVersion: $version,
+                        responseVersion: 0,
+                    ),
+                    $cancellation,
+                );
+
+            $error = ErrorCode::from($response->errorCode);
+            if ($error === ErrorCode::None) {
+                $this->versions->seed(...$response->apiKeys);
+
+                return;
+            }
+
+            if ($error !== ErrorCode::UnsupportedVersion || $index === $last) {
+                throw new ProtocolError(Errors::for($response));
+            }
+        }
+    }
+
+    /**
+     * @throws KafkaException
+     */
+    public function authenticate(Cancellation $cancellation): void
+    {
+        $sasl = $this->config->sasl->authenticators ?? [];
+        if ($sasl === []) {
+            return;
+        }
+
+        $supported = [];
+
+        // Kafka requires the client to nominate a SASL mechanism in the
+        // SaslHandshake request itself. We therefore try the configured
+        // authenticators in order and, if the broker replies with
+        // UNSUPPORTED_SASL_MECHANISM plus a mechanism list, use that list to
+        // prune the remaining candidates.
+        foreach ($sasl as $authenticator) {
+            if ($supported !== [] && !\in_array($authenticator->mechanism(), $supported, true)) {
+                continue;
+            }
+
+            $response = $this
+                ->call(
+                    new Connection\Call(
+                        request: new Generated\SaslHandshakeRequest(
+                            mechanism: $authenticator->mechanism(),
+                        ),
+                    ),
+                    $cancellation,
+                );
+
+            $error = ErrorCode::from($response->errorCode);
+            if ($error === ErrorCode::None) {
+                $this->doSaslAuthenticate($authenticator, $cancellation);
+
+                return;
+            }
+
+            if ($error !== ErrorCode::UnsupportedSaslMechanism) {
+                throw new ProtocolError(Errors::for($response));
+            }
+
+            $supported = $response->mechanisms;
+        }
+
+        throw new NoCompatibleSaslMechanism(
+            array_map(
+                static fn(SASL\Authenticator $authenticator) => $authenticator->mechanism(),
+                $sasl,
+            ),
+            $supported,
+        );
+    }
+
+    /**
      * @param \Closure(\Throwable): void $f
      * @throws ConnectionClosed
      */
@@ -149,6 +281,90 @@ final class Connection
             $this->state = Connection\State::Closed;
             $this->socket->close();
             $this->send->complete();
+        }
+    }
+
+    private function refreshSession(Cancellation $cancellation, Generated\ApiKey $requestKey): void
+    {
+        // Session refresh itself is implemented with SaslHandshake /
+        // SaslAuthenticate requests. Those internal protocol steps must bypass
+        // the "refresh before ordinary request" guard, otherwise an expired
+        // session would recursively try to refresh again while already inside
+        // the refresh flow and deadlock on its own in-flight Future.
+        if (\in_array($requestKey, [Generated\ApiKey::SaslHandshake, Generated\ApiKey::SaslAuthenticate], true)) {
+            return;
+        }
+
+        if ($this->sessionExpiresMs === 0 || $this->sessionExpiresMs > Connection\now()) {
+            return;
+        }
+
+        try {
+            $this->refreshSession ??= async($this->authenticate(...), $cancellation);
+            $this->refreshSession->await($cancellation);
+        } catch (\Throwable $e) {
+            $this->close();
+
+            throw $e;
+        } finally {
+            $this->refreshSession = null;
+        }
+    }
+
+    /**
+     * @throws KafkaException
+     */
+    private function doSaslAuthenticate(
+        SASL\Authenticator $authenticator,
+        Cancellation $cancellation,
+    ): void {
+        $session = $authenticator->authenticate();
+        $exchange = $session->start();
+        $step = 0;
+        $requestStartMs = Connection\now();
+        $sessionLifetimeMs = 0;
+
+        // Once the mechanism has been accepted by SaslHandshake, authentication
+        // proceeds as a challenge/response loop over the SaslAuthenticate API.
+        // PLAIN finishes in one round-trip; SCRAM and future mechanisms can ask
+        // for more steps by returning State::Continue from the local session.
+        while ($exchange->message !== null) {
+            $response = $this
+                ->call(
+                    new Connection\Call(
+                        request: new Generated\SaslAuthenticateRequest(
+                            authBytes: $exchange->message,
+                        ),
+                    ),
+                    $cancellation,
+                );
+
+            if (ErrorCode::from($response->errorCode) !== ErrorCode::None) {
+                throw new ProtocolError(Errors::for($response));
+            }
+
+            $sessionLifetimeMs = $response->sessionLifetimeMs;
+
+            if ($exchange->state === SASL\State::Done) {
+                break;
+            }
+
+            $exchange = $session->challenge(++$step, $response->authBytes);
+        }
+
+        $requestDurationMs = Connection\elapsed($requestStartMs, Connection\now());
+
+        if ($sessionLifetimeMs > 0) {
+            // KIP-368 allows the broker to advertise a finite SASL session
+            // lifetime. Once that deadline is reached, the connection must be
+            // used for re-authentication before we send the next ordinary Kafka
+            // request, so we turn the broker-provided lifetime into a monotonic
+            // local deadline and intentionally schedule it a little early.
+            $this->sessionExpiresMs = Connection\calculateSessionExpiration(
+                requestStartMs: $requestStartMs,
+                requestDurationMs: $requestDurationMs,
+                sessionLifetimeMs: $sessionLifetimeMs,
+            );
         }
     }
 
