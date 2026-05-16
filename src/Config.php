@@ -18,6 +18,7 @@ final readonly class Config implements \IteratorAggregate
     private const string DEFAULT_CLIENT_SOFTWARE_NAME = 'thesis';
     private const int DEFAULT_CONNECT_TIMEOUT_SECS = 5;
     private const int DEFAULT_REQUEST_TIMEOUT_SECS = 30;
+    private const int DEFAULT_METADATA_MAX_AGE_SECS = 300;
 
     /** @var non-empty-list<Config\Endpoint> */
     public array $seeds;
@@ -25,6 +26,8 @@ final readonly class Config implements \IteratorAggregate
     public TimeSpan $connectTimeout;
 
     public TimeSpan $requestTimeout;
+
+    public TimeSpan $metadataMaxAge;
 
     /** @var non-empty-string */
     public string $clientSoftwareVersion;
@@ -34,6 +37,7 @@ final readonly class Config implements \IteratorAggregate
      * @param non-empty-string $clientId
      * @param non-empty-string $clientSoftwareName
      * @param ?non-empty-string $clientSoftwareVersion
+     * @param list<non-empty-string> $preloadTopics
      */
     public function __construct(
         array $seeds,
@@ -44,10 +48,13 @@ final readonly class Config implements \IteratorAggregate
         ?string $clientSoftwareVersion = null,
         public ?Config\TLSConfig $tls = null,
         public ?Config\SASLConfig $sasl = null,
+        public array $preloadTopics = [],
+        ?TimeSpan $metadataMaxAge = null,
     ) {
         $this->seeds = array_map(Config\Endpoint::parse(...), $seeds);
         $this->connectTimeout = $connectTimeout ?? TimeSpan::fromSeconds(self::DEFAULT_CONNECT_TIMEOUT_SECS);
         $this->requestTimeout = $requestTimeout ?? TimeSpan::fromSeconds(self::DEFAULT_REQUEST_TIMEOUT_SECS);
+        $this->metadataMaxAge = $metadataMaxAge ?? TimeSpan::fromSeconds(self::DEFAULT_METADATA_MAX_AGE_SECS);
         $this->clientSoftwareVersion = $clientSoftwareVersion ?? Package\version(self::PACKAGE_NAME);
     }
 
