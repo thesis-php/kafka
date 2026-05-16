@@ -8,8 +8,7 @@ use Testo\Assert;
 use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Config\SASLConfig;
-use Thesis\Kafka\Exception\AllSeedsFailed;
-use Thesis\Kafka\Exception\ConnectionClosed;
+use Thesis\Kafka\Exception\AllBrokersFailed;
 use Thesis\Kafka\SASL\Scram\Sha256ScramAuthenticator;
 
 final readonly class ScramSha256SaslAuthenticationTest extends TestCase
@@ -19,8 +18,9 @@ final readonly class ScramSha256SaslAuthenticationTest extends TestCase
     {
         $client = $this->createScramClient();
 
-        Expect::exception(ConnectionClosed::class)
-            ->fromMethod(Client::class, 'request');
+        Expect::exception(AllBrokersFailed::class)
+            ->fromMethod(Client::class, 'request')
+            ->withMessageContaining('Connection closed by the broker');
 
         $client->request($this->metadataRequest());
     }
@@ -60,7 +60,7 @@ final readonly class ScramSha256SaslAuthenticationTest extends TestCase
             ]),
         );
 
-        Expect::exception(AllSeedsFailed::class)
+        Expect::exception(AllBrokersFailed::class)
             ->fromMethod(Client::class, 'request')
             ->withMessageContaining('Authentication failed during authentication due to invalid credentials with SASL mechanism SCRAM-SHA-256');
 

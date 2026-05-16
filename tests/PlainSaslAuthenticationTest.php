@@ -8,8 +8,7 @@ use Testo\Assert;
 use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Config\SASLConfig;
-use Thesis\Kafka\Exception\AllSeedsFailed;
-use Thesis\Kafka\Exception\ConnectionClosed;
+use Thesis\Kafka\Exception\AllBrokersFailed;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
 
 final readonly class PlainSaslAuthenticationTest extends TestCase
@@ -19,7 +18,8 @@ final readonly class PlainSaslAuthenticationTest extends TestCase
     {
         $client = $this->createPlainClient();
 
-        Expect::exception(ConnectionClosed::class)
+        Expect::exception(AllBrokersFailed::class)
+            ->withMessageContaining('Connection closed by the broker')
             ->fromMethod(Client::class, 'request');
 
         $client->request($this->metadataRequest());
@@ -60,7 +60,7 @@ final readonly class PlainSaslAuthenticationTest extends TestCase
             ]),
         );
 
-        Expect::exception(AllSeedsFailed::class)
+        Expect::exception(AllBrokersFailed::class)
             ->fromMethod(Client::class, 'request')
             ->withMessageContaining('Invalid username or password');
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Thesis\Kafka;
 
 use Amp\Cancellation;
-use Amp\NullCancellation;
 use Thesis\Kafka\Protocol\Generated;
 
 /**
@@ -32,8 +31,8 @@ final readonly class Client
         return $this->cluster->request($request, $cancellation);
     }
 
-    public function close(Cancellation $cancellation = new NullCancellation()): void
+    public function close(): void
     {
-        $this->cluster->close($cancellation);
+        $this->cluster->close();
     }
 }

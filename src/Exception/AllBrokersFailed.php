@@ -9,7 +9,7 @@ use Thesis\Kafka\KafkaException;
 /**
  * @api
  */
-final class AllSeedsFailed extends KafkaException
+final class AllBrokersFailed extends KafkaException
 {
     /**
      * @param array<non-empty-string, \Throwable> $reasons endpoint → cause
@@ -26,7 +26,7 @@ final class AllSeedsFailed extends KafkaException
     private static function formatMessage(array $reasons): string
     {
         $message = \sprintf(
-            'Unable to bootstrap from any of the %d configured seed endpoint(s):',
+            'Unable to request to any of the %d known broker endpoint(s):',
             \count($reasons),
         );
 
