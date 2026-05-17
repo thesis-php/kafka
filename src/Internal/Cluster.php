@@ -222,10 +222,11 @@ final class Cluster
                 throw new NoAvailableController('No controller elected: maybe cluster is in mid-election?');
             }
 
-            $controller = $this->brokers[$this->controllerId]
-                ?? throw new \LogicException(
-                    "ControllerId {$this->controllerId} not present in discovered brokers — metadata inconsistent.",
-                );
+            $controller = $this->brokers[$this->controllerId] ?? null;
+            if ($controller === null) {
+                $this->controllerId = -1;
+                continue;
+            }
 
             $response = $controller->request($request, $cancellation);
 
