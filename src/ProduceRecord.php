@@ -20,7 +20,7 @@ namespace Thesis\Kafka;
  *
  * @api
  */
-final readonly class ProducerRecord
+final readonly class ProduceRecord
 {
     /**
      * @param ?string $key null is a valid record key (compacted-topic tombstone)
@@ -38,4 +38,18 @@ final readonly class ProducerRecord
         public ?int $partition = null,
         public ?int $timestamp = null,
     ) {}
+
+    /**
+     * @return non-negative-int
+     */
+    public function usize(): int
+    {
+        $size = \strlen($this->key ?? '') + \strlen($this->value ?? '');
+
+        foreach ($this->headers as $header) {
+            $size += \strlen($header->key) + \strlen($header->value ?? '');
+        }
+
+        return $size;
+    }
 }

@@ -6,7 +6,7 @@ namespace Thesis\Kafka\Partitioner;
 
 use Testo\Assert;
 use Testo\Test;
-use Thesis\Kafka\ProducerRecord;
+use Thesis\Kafka\ProduceRecord;
 
 final class RoundRobinTopicPartitionerTest
 {
@@ -15,14 +15,14 @@ final class RoundRobinTopicPartitionerTest
     {
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
 
-        Assert::same($partitioner->partition(new ProducerRecord(value: null), 1), 0);
+        Assert::same($partitioner->partition(new ProduceRecord(value: null), 1), 0);
     }
 
     #[Test]
     public function startsAtZeroAndSticksUntilRotate(): void
     {
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProducerRecord(value: null);
+        $record = new ProduceRecord(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -36,7 +36,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProducerRecord(value: null);
+        $record = new ProduceRecord(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -55,7 +55,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProducerRecord(value: null);
+        $record = new ProduceRecord(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -69,7 +69,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProducerRecord(value: null);
+        $record = new ProduceRecord(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 

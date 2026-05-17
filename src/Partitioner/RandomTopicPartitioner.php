@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Partitioner;
 
 use Random\Randomizer;
-use Thesis\Kafka\ProducerRecord;
+use Thesis\Kafka\ProduceRecord;
 use Thesis\Kafka\StickyTopicPartitioner;
 
 /**
@@ -26,7 +26,7 @@ final class RandomTopicPartitioner implements StickyTopicPartitioner
     ) {}
 
     #[\Override]
-    public function partition(ProducerRecord $record, int $partitions): int
+    public function partition(ProduceRecord $record, int $partitions): int
     {
         // Reuse the stuck partition while it's still valid. The partition
         // count can shrink between calls if the topic is reconfigured, in

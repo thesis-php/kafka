@@ -17,5 +17,5 @@ interface TopicPartitioner
      * @param positive-int $partitions number of partitions currently available
      * @return non-negative-int chosen index in [0, $partitions - 1]
      */
-    public function partition(ProducerRecord $record, int $partitions): int;
+    public function partition(ProduceRecord $record, int $partitions): int;
 }

@@ -7,7 +7,7 @@ namespace Thesis\Kafka;
 /**
  * @api
  */
-final readonly class ConsumerRecord
+final readonly class ConsumeRecord
 {
     /**
      * @param non-empty-string $topic

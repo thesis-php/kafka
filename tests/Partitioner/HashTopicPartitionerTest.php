@@ -6,7 +6,7 @@ namespace Thesis\Kafka\Partitioner;
 
 use Testo\Assert;
 use Testo\Test;
-use Thesis\Kafka\ProducerRecord;
+use Thesis\Kafka\ProduceRecord;
 
 final class HashTopicPartitionerTest
 {
@@ -16,7 +16,7 @@ final class HashTopicPartitionerTest
         $partitioner = new HashPartitioner()->forTopic('x');
 
         Assert::same(
-            $partitioner->partition(new ProducerRecord(value: null, key: '21'), 7),
+            $partitioner->partition(new ProduceRecord(value: null, key: '21'), 7),
             3,
         );
     }
@@ -27,7 +27,7 @@ final class HashTopicPartitionerTest
         $partitioner = new HashPartitioner()->forTopic('x');
 
         Assert::same(
-            $partitioner->partition(new ProducerRecord(value: null), 3),
+            $partitioner->partition(new ProduceRecord(value: null), 3),
             0,
         );
     }
@@ -38,11 +38,11 @@ final class HashTopicPartitionerTest
         /** @var HashTopicPartitioner $partitioner */
         $partitioner = new HashPartitioner()->forTopic('x');
 
-        Assert::same($partitioner->partition(new ProducerRecord(value: null), 3), 0);
+        Assert::same($partitioner->partition(new ProduceRecord(value: null), 3), 0);
 
         $partitioner->rotate(0, 3);
 
-        Assert::same($partitioner->partition(new ProducerRecord(value: null), 3), 1);
+        Assert::same($partitioner->partition(new ProduceRecord(value: null), 3), 1);
     }
 
     #[Test]
@@ -51,7 +51,7 @@ final class HashTopicPartitionerTest
         /** @var HashTopicPartitioner $partitioner */
         $partitioner = new HashPartitioner()->forTopic('x');
 
-        $record = new ProducerRecord(value: null, key: '21');
+        $record = new ProduceRecord(value: null, key: '21');
 
         Assert::same($partitioner->partition($record, 7), 3);
 
