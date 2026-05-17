@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka;
 
+use Thesis\Kafka\Config\ProducerConfig;
 use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Protocol\Generated;
 
@@ -23,10 +24,12 @@ abstract readonly class TestCase
     final protected function createClient(
         array $seeds = self::SEEDS,
         ?SASLConfig $sasl = null,
+        ProducerConfig $producer = new ProducerConfig(),
     ): Client {
         return new Client(new Config(
             seeds: $seeds,
             sasl: $sasl,
+            producer: $producer,
         ));
     }
 
