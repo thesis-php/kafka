@@ -14,7 +14,9 @@ use Thesis\Kafka\Internal\Producer\Sender;
 use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\ProduceRecord;
 use Thesis\Kafka\ProduceResult;
+use Thesis\Kafka\StickyTopicPartitioner;
 use Thesis\Kafka\TopicPartitioner;
+use function Amp\weakClosure;
 
 /**
  * Sends records to Kafka. One {@see Producer} owns one {@see Accumulator} (per-
@@ -49,6 +51,7 @@ final class Producer
             batches: $this->accumulator,
         );
 
+        $this->accumulator->onRelease(weakClosure($this->rotatePartitioner(...)));
         $this->sender->start();
     }
 
@@ -84,5 +87,25 @@ final class Producer
     {
         $this->accumulator->close();
         $this->sender->stop();
+    }
+
+    /**
+     * @param non-empty-string $topic
+     * @param non-negative-int $partition
+     */
+    private function rotatePartitioner(string $topic, int $partition): void
+    {
+        $partitioner = $this->partitioners[$topic] ?? null;
+        if ($partitioner instanceof StickyTopicPartitioner) {
+            $metadata = $this->cluster->metadata()->topics[$topic] ?? null;
+
+            /** @var positive-int $partitions */
+            $partitions = $metadata !== null ? \count($metadata->partitions) : 1;
+
+            $partitioner->rotate(
+                partition: $partition,
+                partitions: $partitions, // TODO: refactor metadata
+            );
+        }
     }
 }

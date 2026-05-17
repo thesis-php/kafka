@@ -44,6 +44,9 @@ final class Accumulator implements \IteratorAggregate
     /** @var non-empty-string */
     private string $batchId = 'a';
 
+    /** @var array<\Closure(non-empty-string, non-negative-int): void> */
+    private array $callbacks = [];
+
     /**
      * @param positive-int $batchSize
      */
@@ -94,11 +97,19 @@ final class Accumulator implements \IteratorAggregate
         return $deferred->getFuture();
     }
 
+    /**
+     * @param \Closure(non-empty-string, non-negative-int): void $callback
+     */
+    public function onRelease(\Closure $callback): void
+    {
+        $this->callbacks[] = $callback;
+    }
+
     public function flush(): void
     {
         foreach ($this->open as $partitions) {
-            foreach ($partitions as $batch) {
-                $this->release($batch);
+            foreach ($partitions as $open) {
+                $this->release($open);
             }
         }
     }
@@ -151,9 +162,9 @@ final class Accumulator implements \IteratorAggregate
             $this->timers[$batchId] = EventLoop::delay(
                 $this->linger->toSeconds(3),
                 function () use ($reference): void {
-                    $batch = $reference->get();
-                    if ($batch !== null) {
-                        $this->release($batch);
+                    $open = $reference->get();
+                    if ($open !== null) {
+                        $this->release($open);
                     }
                 },
             );
@@ -183,6 +194,10 @@ final class Accumulator implements \IteratorAggregate
         }
 
         $this->ready->push($open->release());
+
+        foreach ($this->callbacks as $callback) {
+            $callback($open->topic, $open->partition);
+        }
     }
 
     private function batchReady(OpenBatch $open, ProduceRecord $record): bool
