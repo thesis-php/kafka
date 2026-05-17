@@ -1,0 +1,48 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Thesis\Kafka\Internal\Producer;
+
+use Amp\DeferredFuture;
+use Thesis\Kafka\ProduceResult;
+use Thesis\Kafka\Protocol\Record\RecordBatch;
+
+/**
+ * @internal
+ */
+final class OpenBatch implements \Countable
+{
+    /**
+     * @param non-empty-string $id
+     * @param non-empty-string $topic
+     * @param non-negative-int $partition
+     * @param list<DeferredFuture<ProduceResult>> $futures one per appended record, indexed positionally
+     */
+    public function __construct(
+        public readonly string $id,
+        public readonly string $topic,
+        public readonly int $partition,
+        public readonly RecordBatch $batch,
+        public private(set) OpenBatch\State $state = OpenBatch\State::Accumulate,
+        public array $futures = [],
+    ) {}
+
+    public function release(): ReadyBatch
+    {
+        $this->state = OpenBatch\State::Released;
+
+        return new ReadyBatch(
+            topic: $this->topic,
+            partition: $this->partition,
+            batch: $this->batch,
+            futures: $this->futures,
+        );
+    }
+
+    #[\Override]
+    public function count(): int
+    {
+        return $this->batch->count();
+    }
+}

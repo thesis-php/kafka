@@ -7,7 +7,7 @@ namespace Thesis\Kafka\Protocol\Record;
 use Thesis\Kafka\Compressor;
 use Thesis\Kafka\Crc32;
 use Thesis\Kafka\Exception\CompressionFailed;
-use Thesis\Kafka\ProducerRecord;
+use Thesis\Kafka\ProduceRecord;
 use Thesis\Kafka\Protocol\Writer;
 
 /**
@@ -43,6 +43,29 @@ use Thesis\Kafka\Protocol\Writer;
 final class RecordBatch implements \Countable
 {
     /**
+     * Size in bytes of the fixed batch header. Counted from the
+     * attributes field through numRecords, excluding the records
+     * section itself. Used as the initial value for the on-wire size
+     * estimate.
+     *
+     *   firstOffset          (int64)  8
+     *   length               (int32)  4
+     *   partitionLeaderEpoch (int32)  4
+     *   magic                (int8)   1
+     *   crc                  (int32)  4
+     *   attributes           (int16)  2
+     *   lastOffsetDelta      (int32)  4
+     *   firstTimestamp       (int64)  8
+     *   maxTimestamp         (int64)  8
+     *   producerId           (int64)  8
+     *   producerEpoch        (int16)  2
+     *   baseSequence         (int32)  4
+     *   numRecords           (int32)  4
+     *                              = 61 bytes
+     */
+    private const int HEADER_SIZE = 61;
+
+    /**
      * RecordBatch wire format version. Magic 0 and 1 are the legacy
      * MessageV0/V1 formats, we only produce and understand magic 2.
      */
@@ -68,6 +91,14 @@ final class RecordBatch implements \Countable
      * @var non-negative-int
      */
     private int $maxTimestamp = 0;
+
+    /**
+     * Updated in append() and read by the producer's Accumulator to decide
+     * when to roll over to a new batch.
+     *
+     * @var positive-int
+     */
+    private int $estimatedSize = self::HEADER_SIZE;
 
     public function __construct(
         ?RecordBatchAttributes $attributes = null,
@@ -100,7 +131,7 @@ final class RecordBatch implements \Countable
         }
     }
 
-    public function append(ProducerRecord $record): void
+    public function append(ProduceRecord $record): void
     {
         /** @var non-negative-int $timestamp */
         $timestamp = $record->timestamp ?? (int) floor(microtime(true) * 1000);
@@ -109,6 +140,7 @@ final class RecordBatch implements \Countable
         // subsequent record is encoded as a delta of it.
         $this->firstTimestamp ??= $timestamp;
         $this->maxTimestamp = max($this->maxTimestamp, $timestamp);
+        $this->estimatedSize += self::recordOverhead($record);
 
         $this->records[] = new Record(
             timestampDelta: $timestamp - $this->firstTimestamp,
@@ -178,9 +210,36 @@ final class RecordBatch implements \Countable
         return (string) $batch;
     }
 
+    /**
+     * @return positive-int
+     */
+    public function estimatedSize(): int
+    {
+        return $this->estimatedSize;
+    }
+
     #[\Override]
     public function count(): int
     {
         return \count($this->records);
+    }
+
+    /**
+     * @return positive-int
+     */
+    public static function recordOverhead(ProduceRecord $record): int
+    {
+        // attributes + timestampDelta + offsetDelta
+        $size = 1 + 10 + 5;
+        $size += 5 + \strlen($record->key ?? '');
+        $size += 5 + \strlen($record->value ?? '');
+        $size += 5;
+
+        foreach ($record->headers as $header) {
+            $size += 5 + \strlen($header->key);
+            $size += 5 + \strlen($header->value ?? '');
+        }
+
+        return $size + 5;
     }
 }
