@@ -26,16 +26,16 @@ final readonly class ReadyBatch
     ) {}
 
     /**
-     * @param non-negative-int $offset
-     * @param non-negative-int $timestamp
+     * @param ?non-negative-int $offset
+     * @param ?non-negative-int $timestamp
      */
-    public function complete(int $offset, int $timestamp): void
+    public function complete(?int $offset, ?int $timestamp): void
     {
         foreach ($this->futures as $idx => $future) {
             $future->complete(new ProduceResult(
                 topic: $this->topic,
                 partition: $this->partition,
-                offset: $offset + $idx,
+                offset: $offset !== null ? $offset + $idx : null,
                 timestamp: $timestamp,
             ));
         }

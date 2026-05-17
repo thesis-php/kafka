@@ -15,6 +15,7 @@ use Thesis\Kafka\Config;
 use Thesis\Kafka\Exception\AllBrokersFailed;
 use Thesis\Kafka\Exception\NoAvailableController;
 use Thesis\Kafka\Exception\ProtocolError;
+use Thesis\Kafka\Exception\UnknownBroker;
 use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
@@ -68,6 +69,7 @@ final class Cluster
     /**
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
+     * @param ?non-negative-int $brokerId
      * @return ($reply is Connection\Reply::Expected ? T : null)
      * @throws KafkaException
      */
@@ -75,6 +77,7 @@ final class Cluster
         Generated\Request $request,
         ?Cancellation $cancellation = null,
         Connection\Reply $reply = Connection\Reply::Expected,
+        ?int $brokerId = null,
     ): mixed {
         $this->metadataCallbackId ??= EventLoop::repeat(
             $this->config->metadataMaxAge->toSeconds(),
@@ -87,6 +90,11 @@ final class Cluster
         // a slow broker would stall the caller indefinitely. Callers
         // who want different semantics pass their own Cancellation.
         $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds());
+
+        if ($brokerId !== null) {
+            $broker = $this->brokers[$brokerId] ?? throw new UnknownBroker($brokerId);
+            return $broker->request($request, $cancellation, $reply);
+        }
 
         // Metadata is special: it both feeds and uses the broker set,
         // so it bypasses the normal routing and goes through the
