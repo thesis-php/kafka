@@ -68,11 +68,14 @@ final class Cluster
     /**
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
-     * @return T
+     * @return ($reply is Connection\Reply::Expected ? T : null)
      * @throws KafkaException
      */
-    public function request(Generated\Request $request, ?Cancellation $cancellation = null): Generated\Response
-    {
+    public function request(
+        Generated\Request $request,
+        ?Cancellation $cancellation = null,
+        Connection\Reply $reply = Connection\Reply::Expected,
+    ): mixed {
         $this->metadataCallbackId ??= EventLoop::repeat(
             $this->config->metadataMaxAge->toSeconds(),
             function (): void { $this->refreshMetadata(); },
@@ -94,7 +97,7 @@ final class Cluster
             return $this->doControllerRequest($request, $cancellation);
         }
 
-        return $this->doBrokerRequest($request, $cancellation);
+        return $this->doBrokerRequest($request, $cancellation, $reply);
     }
 
     public function close(): void
@@ -234,13 +237,14 @@ final class Cluster
     /**
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
-     * @return T
+     * @return ($reply is Connection\Reply::Expected ? T : null)
      * @throws KafkaException
      */
     private function doBrokerRequest(
         Generated\Request $request,
         Cancellation $cancellation,
-    ): Generated\Response {
+        Connection\Reply $reply = Connection\Reply::Expected,
+    ): mixed {
         $errors = [];
 
         // Prefer brokers that already have a live connection. Reusing
@@ -257,7 +261,7 @@ final class Cluster
             unset($wired[$key]);
 
             try {
-                return $broker->request($request, $cancellation);
+                return $broker->request($request, $cancellation, $reply);
             } catch (\Throwable $e) {
                 $errors[(string) $broker->endpoint] = $e;
             }
@@ -277,7 +281,7 @@ final class Cluster
             unset($cold[$key]);
 
             try {
-                return $broker->request($request, $cancellation);
+                return $broker->request($request, $cancellation, $reply);
             } catch (\Throwable $e) {
                 $errors[(string) $broker->endpoint] = $e;
             }
@@ -288,7 +292,7 @@ final class Cluster
         // the seed order intentionally, so we don't randomize.
         foreach ($this->seeds as $seed) {
             try {
-                return $seed->request($request, $cancellation);
+                return $seed->request($request, $cancellation, $reply);
             } catch (\Throwable $e) {
                 $errors[(string) $seed->endpoint] = $e;
             }

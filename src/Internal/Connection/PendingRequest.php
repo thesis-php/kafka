@@ -15,7 +15,7 @@ final readonly class PendingRequest
 {
     /**
      * @param Generated\Request<R> $request
-     * @param DeferredFuture<R> $deferred
+     * @param DeferredFuture<null|R> $deferred
      * @param non-negative-int $correlationId
      * @param non-negative-int $requestVersion
      * @param non-negative-int $responseVersion

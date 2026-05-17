@@ -80,14 +80,15 @@ final class Connection
     /**
      * @template R of Generated\Response
      * @param Connection\Call<R> $call
-     * @return R
+     * @return ($reply is Connection\Reply::Expected ? R : null)
      * @throws KafkaException
      * @throws Pipeline\DisposedException
      */
     public function call(
         Connection\Call $call,
         Cancellation $cancellation = new NullCancellation(),
-    ): Generated\Response {
+        Connection\Reply $reply = Connection\Reply::Expected,
+    ): mixed {
         if ($this->state === Connection\State::Closed) {
             throw new ConnectionClosed('Connection is closed.');
         }
@@ -125,8 +126,14 @@ final class Connection
             $responseVersion = $call->responseVersion;
         }
 
-        /** @var DeferredFuture<R> $deferred */
+        /** @var DeferredFuture<null|R> $deferred */
         $deferred = new DeferredFuture();
+
+        if ($reply === Connection\Reply::None) {
+            // Resolve immediately. The write is queued; we don't await
+            // its completion at the application level. Used mostly for Acks::None.
+            $deferred->complete(null);
+        }
 
         $id = $this->correlation->id;
 
@@ -138,8 +145,9 @@ final class Connection
             responseVersion: $responseVersion,
         );
 
-        $pending = &$this->pending;
-        $pending[$id] = $request;
+        if ($reply === Connection\Reply::Expected) {
+            $this->pending[$id] = $request;
+        }
 
         $this->send->push($request);
 
@@ -152,7 +160,9 @@ final class Connection
             // in the read loop as "unknown correlation id". Aborting an in-flight
             // pipelined request can only be done by killing the whole TCP session,
             // which we don't do at this layer.
-            unset($pending[$id]);
+            if ($reply === Connection\Reply::Expected) {
+                unset($this->pending[$id]);
+            }
         }
     }
 

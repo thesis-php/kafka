@@ -37,11 +37,14 @@ final class Broker
     /**
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
-     * @return T
+     * @return ($reply is Connection\Reply::Expected ? T : null)
      * @throws KafkaException
      */
-    public function request(Generated\Request $request, Cancellation $cancellation): Generated\Response
-    {
+    public function request(
+        Generated\Request $request,
+        Cancellation $cancellation,
+        Connection\Reply $reply = Connection\Reply::Expected,
+    ): mixed {
         $kind = Connection\Kind::for($request);
 
         // Fast path: reuse a healthy connection of this kind.
@@ -52,7 +55,7 @@ final class Broker
         $connection = $this->alive[$kind]
             ?? ($this->opening[$kind] ??= $this->connect($kind, $cancellation))->await($cancellation);
 
-        return $connection->call(new Connection\Call($request), $cancellation);
+        return $connection->call(new Connection\Call($request), $cancellation, $reply);
     }
 
     public function alive(): bool
