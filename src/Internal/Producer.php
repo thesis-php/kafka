@@ -2,23 +2,26 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka;
+namespace Thesis\Kafka\Internal;
 
 use Amp\Cancellation;
 use Amp\Future;
 use Amp\NullCancellation;
 use Thesis\Kafka\Config\ProducerConfig;
 use Thesis\Kafka\Exception\UnknownTopic;
-use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\Producer\Accumulator;
 use Thesis\Kafka\Internal\Producer\Sender;
+use Thesis\Kafka\KafkaException;
+use Thesis\Kafka\ProduceRecord;
+use Thesis\Kafka\ProduceResult;
+use Thesis\Kafka\TopicPartitioner;
 
 /**
  * Sends records to Kafka. One {@see Producer} owns one {@see Accumulator} (per-
  * (topic, partition) batching) and one {@see Sender} (background coroutine
  * that drains the {@see Accumulator}).
  *
- * @api
+ * @internal
  */
 final class Producer
 {
@@ -72,21 +75,9 @@ final class Producer
 
         $partitioner = $this->partitioners[$topic] ??= $this->config->partitioner->forTopic($topic);
 
-        $partition = $partitioner->partition($record, \count($topicMetadata)); // @phpstan-ignore argument.type
+        $partition = $record->partition ?? $partitioner->partition($record, \count($topicMetadata)); // @phpstan-ignore argument.type
 
         return $this->accumulator->append($topic, $partition, $record);
-    }
-
-    /**
-     * Produce a record and wait for its result synchronously.
-     *
-     * @throws KafkaException
-     */
-    public function produceSync(ProduceRecord $record, Cancellation $cancellation = new NullCancellation()): ProduceResult
-    {
-        return $this
-            ->produce($record, $cancellation)
-            ->await($cancellation);
     }
 
     public function close(): void

@@ -7,22 +7,25 @@ namespace Thesis\Kafka;
 use Amp\Cancellation;
 use Amp\Future;
 use Amp\NullCancellation;
-use Thesis\Kafka\Config\ProducerConfig;
 use Thesis\Kafka\Protocol\Generated;
 
 /**
  * @api
  */
-final class Client
+final readonly class Client
 {
-    private readonly Internal\Cluster $cluster;
+    private Internal\Cluster $cluster;
 
-    private ?Producer $producer = null;
+    private Internal\Producer $producer;
 
     public function __construct(
-        public readonly Config $config,
+        public Config $config,
     ) {
         $this->cluster = new Internal\Cluster($config);
+        $this->producer = new Internal\Producer(
+            $this->cluster,
+            $this->config->producer,
+        );
     }
 
     /**
@@ -37,22 +40,41 @@ final class Client
     }
 
     /**
-     * @return Future<ProduceResult>
+     * @param ProduceRecord|non-empty-list<ProduceRecord> $records
+     * @return ($records is non-empty-list<ProduceRecord> ? non-empty-list<Future<ProduceResult>> : Future<ProduceResult>)
      * @throws KafkaException
      */
-    public function produce(ProduceRecord $record, Cancellation $cancellation = new NullCancellation()): Future
+    public function produce(ProduceRecord|array $records, Cancellation $cancellation = new NullCancellation()): mixed
     {
-        $this->producer ??= new Producer(
-            $this->cluster,
-            $this->config->producer ?? new ProducerConfig(),
-        );
+        if (\is_array($records)) {
+            return array_map(
+                fn(ProduceRecord $record) => $this->producer->produce($record, $cancellation),
+                $records,
+            );
+        }
 
-        return $this->producer->produce($record, $cancellation);
+        return $this->producer->produce($records, $cancellation);
+    }
+
+    /**
+     * @param ProduceRecord|non-empty-list<ProduceRecord> $records
+     * @return ($records is non-empty-list<ProduceRecord> ? non-empty-list<ProduceResult> : ProduceResult)
+     * @throws KafkaException
+     */
+    public function produceSync(ProduceRecord|array $records, Cancellation $cancellation = new NullCancellation()): mixed
+    {
+        $futures = $this->produce($records, $cancellation);
+        if (\is_array($futures)) {
+            /** @var non-empty-list<ProduceResult> */
+            return Future\await($futures);
+        }
+
+        return $futures->await();
     }
 
     public function close(): void
     {
-        $this->producer?->close();
+        $this->producer->close();
         $this->cluster->close();
     }
 }

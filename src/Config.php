@@ -50,7 +50,7 @@ final readonly class Config implements \IteratorAggregate
         public ?Config\SASLConfig $sasl = null,
         public array $preloadTopics = [],
         ?TimeSpan $metadataMaxAge = null,
-        public ?Config\ProducerConfig $producer = null,
+        public Config\ProducerConfig $producer = new Config\ProducerConfig(),
     ) {
         $this->seeds = array_map(Config\Endpoint::parse(...), $seeds);
         $this->connectTimeout = $connectTimeout ?? TimeSpan::fromSeconds(self::DEFAULT_CONNECT_TIMEOUT_SECS);
