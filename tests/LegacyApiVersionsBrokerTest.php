@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Thesis\Kafka;
 
 use Testo\Assert;
+use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Protocol\Generated;
 
+#[Covers(Client::class)]
 final readonly class LegacyApiVersionsBrokerTest extends TestCase
 {
     #[Test]

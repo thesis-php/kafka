@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Generator;
 
 use Testo\Assert;
+use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Generator\Generator\NamespaceGenerator;
 use Thesis\Kafka\Generator\SchemaSource\StaticSource;
 use Thesis\Kafka\Generator\Writer\InMemoryWriter;
 
+#[Covers(Generator::class)]
 final class GeneratorTest
 {
     #[Test]

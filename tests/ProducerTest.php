@@ -7,12 +7,16 @@ namespace Thesis\Kafka;
 use Amp\Future;
 use Ramsey\Uuid\Uuid;
 use Testo\Assert;
+use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Config\ProducerConfig;
+use Thesis\Kafka\Internal\Producer;
 use Thesis\Kafka\Partitioner\RoundRobinPartitioner;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Time\TimeSpan;
 
+#[Covers(Client::class)]
+#[Covers(Producer::class)]
 final readonly class ProducerTest extends TestCase
 {
     #[Test]

@@ -6,6 +6,7 @@ namespace Thesis\Kafka\Internal;
 
 use Ramsey\Uuid\Uuid;
 use Testo\Assert;
+use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Client;
 use Thesis\Kafka\Config;
@@ -13,6 +14,7 @@ use Thesis\Kafka\Internal\Cluster\Metadata\TopicKind;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\TestCase;
 
+#[Covers(Cluster::class)]
 final readonly class ClusterTest extends TestCase
 {
     #[Test]

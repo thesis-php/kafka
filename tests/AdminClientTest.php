@@ -6,9 +6,11 @@ namespace Thesis\Kafka;
 
 use Ramsey\Uuid\Uuid;
 use Testo\Assert;
+use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Protocol\Generated;
 
+#[Covers(Client::class)]
 final readonly class AdminClientTest extends TestCase
 {
     #[Test]

@@ -6,6 +6,7 @@ namespace Thesis\Kafka;
 
 use Amp\NullCancellation;
 use Testo\Assert;
+use Testo\Codecov\Covers;
 use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Config\Endpoint;
@@ -17,6 +18,7 @@ use Thesis\Kafka\Internal\Time;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
 use function Amp\delay;
 
+#[Covers(PlainAuthenticator::class)]
 final readonly class PlainSaslReauthenticationTest extends TestCase
 {
     #[Test]

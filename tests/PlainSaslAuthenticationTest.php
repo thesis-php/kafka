@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Thesis\Kafka;
 
 use Testo\Assert;
+use Testo\Codecov\Covers;
 use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\AllBrokersFailed;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
 
+#[Covers(PlainAuthenticator::class)]
 final readonly class PlainSaslAuthenticationTest extends TestCase
 {
     #[Test]
