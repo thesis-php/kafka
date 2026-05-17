@@ -78,7 +78,9 @@ final class Cluster
     ): mixed {
         $this->metadataCallbackId ??= EventLoop::repeat(
             $this->config->metadataMaxAge->toSeconds(),
-            function (): void { $this->refreshMetadata(); },
+            function (): void {
+                $this->refreshMetadata();
+            },
         );
 
         // Default to a client-side timeout based on Config: without it,

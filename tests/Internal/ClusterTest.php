@@ -95,8 +95,11 @@ final readonly class ClusterTest extends TestCase
         Assert::array($metadata->topics)->hasKeys($topic);
 
         $this->deleteTopic($client, $topic);
-        $this->waitUntilTopicDeleted($client, $topic);
-        $metadata = $cluster->refreshMetadata([$topic]);
+        $metadata = $this->waitUntilClusterMetadataDropsTopics(
+            $cluster,
+            [$topic],
+            [$topic],
+        );
 
         Assert::array($metadata->topics)->hasCount(0);
 
@@ -185,31 +188,6 @@ final readonly class ClusterTest extends TestCase
         Assert::fail("Topic '{$topicName}' did not become visible in metadata.");
     }
 
-    private function waitUntilTopicDeleted(Client $client, string $topicName): void
-    {
-        for ($attempt = 0; $attempt < 10; ++$attempt) {
-            $response = $client->request(new Generated\MetadataRequest(
-                topics: [
-                    new Generated\MetadataRequest\MetadataRequestTopic(
-                        topicId: Uuid::fromString(Uuid::NIL),
-                        name: $topicName,
-                    ),
-                ],
-                allowAutoTopicCreation: false,
-                includeClusterAuthorizedOperations: false,
-                includeTopicAuthorizedOperations: false,
-            ));
-
-            if (\count($response->topics) === 1 && $response->topics[0]->name === $topicName && $response->topics[0]->errorCode !== 0) {
-                return;
-            }
-
-            usleep(200_000);
-        }
-
-        Assert::fail("Topic '{$topicName}' did not disappear from metadata.");
-    }
-
     /**
      * @param list<non-empty-string> $requestedTopics
      * @param list<non-empty-string> $expectedTopics
@@ -233,6 +211,33 @@ final readonly class ClusterTest extends TestCase
             \sprintf(
                 'Cluster metadata did not contain expected topics: expected [%s], got [%s].',
                 implode(', ', $expectedTopics),
+                implode(', ', array_keys($metadata->topics ?? [])),
+            ),
+        );
+    }
+
+    /**
+     * @param list<non-empty-string> $requestedTopics
+     * @param list<non-empty-string> $deletedTopics
+     */
+    private function waitUntilClusterMetadataDropsTopics(
+        Cluster $cluster,
+        array $requestedTopics,
+        array $deletedTopics,
+    ): Cluster\Metadata {
+        for ($attempt = 0; $attempt < 10; ++$attempt) {
+            $metadata = $cluster->refreshMetadata($requestedTopics);
+
+            if (array_intersect(array_keys($metadata->topics), $deletedTopics) === []) {
+                return $metadata;
+            }
+
+            usleep(200_000);
+        }
+
+        Assert::fail(
+            \sprintf(
+                'Cluster metadata still contained deleted topics: [%s].',
                 implode(', ', array_keys($metadata->topics ?? [])),
             ),
         );
