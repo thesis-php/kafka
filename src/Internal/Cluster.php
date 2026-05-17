@@ -128,7 +128,7 @@ final class Cluster
             $this->metadataCallbackId = null;
         }
 
-        Future\await($futures);
+        Future\awaitAll($futures);
     }
 
     /**

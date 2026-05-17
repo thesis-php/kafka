@@ -47,7 +47,7 @@ final class Sender
             $this->loop = null;
         }
 
-        Future\await($futures);
+        Future\awaitAll($futures);
     }
 
     /**

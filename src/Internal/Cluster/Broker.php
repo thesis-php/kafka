@@ -75,7 +75,7 @@ final class Broker
             $futures[] = async($connection->close(...));
         }
 
-        Future\await($futures, $cancellation);
+        Future\awaitAll($futures, $cancellation);
     }
 
     /**
