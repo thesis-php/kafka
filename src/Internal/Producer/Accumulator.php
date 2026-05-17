@@ -149,7 +149,7 @@ final class Accumulator implements \IteratorAggregate
             $reference = \WeakReference::create($open);
 
             $this->timers[$batchId] = EventLoop::delay(
-                $this->linger->toSeconds(),
+                $this->linger->toSeconds(3),
                 function () use ($reference): void {
                     $batch = $reference->get();
                     if ($batch !== null) {
