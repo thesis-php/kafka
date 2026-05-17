@@ -36,7 +36,7 @@ final readonly class ReadyBatch
                 topic: $this->topic,
                 partition: $this->partition,
                 offset: $offset !== null ? $offset + $idx : null,
-                timestamp: $timestamp,
+                timestamp: $timestamp > 0 ? $timestamp : null,
             ));
         }
     }

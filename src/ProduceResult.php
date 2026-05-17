@@ -12,8 +12,9 @@ final readonly class ProduceResult
     /**
      * @param non-empty-string $topic
      * @param non-negative-int $partition
-     * @param ?non-negative-int $offset
-     * @param ?non-negative-int $timestamp
+     * @param ?non-negative-int $offset null when {@see Acks::None} (broker doesn't respond)
+     * @param ?non-negative-int $timestamp null when topic uses CreateTime (broker doesn't override the timestamp
+     *                                     the producer sent) or when {@see Acks::None}
      */
     public function __construct(
         public string $topic,
