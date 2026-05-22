@@ -48,7 +48,7 @@ final class Accumulator implements \IteratorAggregate
     private array $callbacks = [];
 
     /**
-     * @param positive-int $batchSize
+     * @param -1|positive-int $batchSize
      */
     public function __construct(
         private readonly ?Compressor $compressor,
@@ -90,7 +90,7 @@ final class Accumulator implements \IteratorAggregate
         $open->batch->append($record);
         $open->futures[] = $deferred;
 
-        if ($open->batch->estimatedSize() >= $this->batchSize) {
+        if ($this->batchSize !== -1 && $open->batch->estimatedSize() >= $this->batchSize) {
             $this->release($open);
         }
 
@@ -107,11 +107,24 @@ final class Accumulator implements \IteratorAggregate
 
     public function flush(): void
     {
+        /** @var list<Future<ProduceResult>> $futures */
+        $futures = [];
+
         foreach ($this->open as $partitions) {
             foreach ($partitions as $open) {
                 $this->release($open);
+
+                $futures = [
+                    ...$futures,
+                    ...array_map(
+                        static fn(DeferredFuture $deferred) => $deferred->getFuture(),
+                        $open->futures,
+                    ),
+                ];
             }
         }
+
+        Future\awaitAll($futures);
     }
 
     public function close(): void
@@ -202,6 +215,10 @@ final class Accumulator implements \IteratorAggregate
 
     private function batchReady(OpenBatch $open, ProduceRecord $record): bool
     {
+        if ($this->batchSize === -1) {
+            return false;
+        }
+
         if (\count($open) === 0) {
             return false;
         }

@@ -83,6 +83,11 @@ final class Producer
         return $this->accumulator->append($topic, $partition, $record);
     }
 
+    public function flush(): void
+    {
+        $this->accumulator->flush();
+    }
+
     public function close(): void
     {
         $this->accumulator->close();

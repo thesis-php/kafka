@@ -1,6 +1,6 @@
-# Thesis Kafka
+## Feature complete, pure async PHP library for Kafka
 
-## Installation
+### Installation
 
 ```shell
 composer require thesis/kafka

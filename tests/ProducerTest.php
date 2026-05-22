@@ -128,6 +128,60 @@ final readonly class ProducerTest extends TestCase
         $admin->close();
     }
 
+    #[Test]
+    public function manualFlushKeepsProduceFuturesPendingUntilExplicitFlush(): void
+    {
+        $admin = $this->createClient();
+        $client = $this->createClient(producer: new ProducerConfig(
+            manualFlush: true,
+        ));
+
+        $topic = $this->createTopic($admin, partitions: 3);
+        $this->waitUntilTopicVisible($admin, $topic, partitions: 3);
+        $this->waitUntilTopicVisible($client, $topic, partitions: 3);
+
+        $futures = $client->produce([
+            new ProduceRecord(
+                value: 'manual-flush-0',
+                topic: $topic,
+                partition: 2,
+            ),
+            new ProduceRecord(
+                value: 'manual-flush-1',
+                topic: $topic,
+                partition: 2,
+            ),
+        ]);
+
+        \assert(\count($futures) === 2);
+
+        usleep(200_000);
+
+        Assert::false($futures[0]->isComplete());
+        Assert::false($futures[1]->isComplete());
+
+        $client->flush();
+
+        Assert::true($futures[0]->isComplete());
+        Assert::true($futures[1]->isComplete());
+
+        /** @var list<ProduceResult> $results */
+        $results = array_values(Future\await($futures));
+
+        \assert(\count($results) === 2);
+
+        Assert::same($results[0]->topic, $topic);
+        Assert::same($results[1]->topic, $topic);
+        Assert::same($results[0]->partition, 2);
+        Assert::same($results[1]->partition, 2);
+        Assert::int($results[0]->offset ?? -1)->greaterThanOrEqual(0);
+        Assert::same($results[1]->offset, ($results[0]->offset ?? 0) + 1);
+
+        $this->deleteTopic($admin, $topic);
+        $admin->close();
+        $client->close();
+    }
+
     /**
      * @return non-empty-string
      */

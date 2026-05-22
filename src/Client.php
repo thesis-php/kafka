@@ -72,6 +72,11 @@ final readonly class Client
         return $futures->await();
     }
 
+    public function flush(): void
+    {
+        $this->producer->flush();
+    }
+
     public function close(): void
     {
         $this->producer->close();
