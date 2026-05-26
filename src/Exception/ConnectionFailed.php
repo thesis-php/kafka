@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Exception;
 
 use Thesis\Kafka\Config\Endpoint;
-use Thesis\Kafka\KafkaException;
+use Thesis\Kafka\Exception;
 
 /**
  * @api
  */
-final class ConnectionFailed extends KafkaException
+final class ConnectionFailed extends Exception
 {
     public function __construct(
         public readonly Endpoint $endpoint,

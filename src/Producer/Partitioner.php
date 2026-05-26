@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka;
+namespace Thesis\Kafka\Producer;
 
 /**
  * The Producer calls forTopic() once per topic and reuses the returned

@@ -12,11 +12,11 @@ use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
 use Revolt\EventLoop;
 use Thesis\Kafka\Config;
+use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\AllBrokersFailed;
 use Thesis\Kafka\Exception\NoAvailableController;
 use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\Exception\UnknownBroker;
-use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
@@ -71,7 +71,7 @@ final class Cluster
      * @param Generated\Request<T> $request
      * @param ?non-negative-int $brokerId
      * @return ($reply is Connection\Reply::Expected ? T : null)
-     * @throws KafkaException
+     * @throws Exception
      */
     public function request(
         Generated\Request $request,
@@ -163,7 +163,7 @@ final class Cluster
     }
 
     /**
-     * @throws KafkaException
+     * @throws Exception
      * @phpstan-assert !null $this->metadata
      */
     private function doMetadataRequest(
@@ -193,7 +193,7 @@ final class Cluster
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
      * @return T
-     * @throws KafkaException
+     * @throws Exception
      */
     private function doControllerRequest(
         Generated\Request $request,
@@ -249,7 +249,7 @@ final class Cluster
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
      * @return ($reply is Connection\Reply::Expected ? T : null)
-     * @throws KafkaException
+     * @throws Exception
      */
     private function doBrokerRequest(
         Generated\Request $request,

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka;
+namespace Thesis\Kafka\Producer;
 
 /**
  * @api
  */
-final readonly class ProduceResult
+final readonly class Produced
 {
     /**
      * @param non-empty-string $topic

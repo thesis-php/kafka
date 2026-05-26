@@ -8,10 +8,10 @@ use Amp\Cancellation;
 use Amp\NullCancellation;
 use Amp\Socket;
 use Thesis\Kafka\Config;
+use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\ConnectionFailed;
 use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\Exception\SaslAuthenticationFailed;
-use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
 
@@ -40,7 +40,7 @@ final readonly class ConnectionFactory
     }
 
     /**
-     * @throws KafkaException
+     * @throws Exception
      */
     public function open(
         Config\Endpoint $endpoint,

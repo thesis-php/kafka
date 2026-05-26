@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Partitioner;
+namespace Thesis\Kafka\Producer\Partitioner;
 
-use Thesis\Kafka\Hasher;
-use Thesis\Kafka\ProduceRecord;
-use Thesis\Kafka\StickyTopicPartitioner;
-use Thesis\Kafka\TopicPartitioner;
+use Thesis\Kafka\Producer\Hasher;
+use Thesis\Kafka\Producer\Record;
+use Thesis\Kafka\Producer\StickyTopicPartitioner;
+use Thesis\Kafka\Producer\TopicPartitioner;
 
 /**
  * @api
@@ -20,7 +20,7 @@ final readonly class HashTopicPartitioner implements StickyTopicPartitioner
     ) {}
 
     #[\Override]
-    public function partition(ProduceRecord $record, int $partitions): int
+    public function partition(Record $record, int $partitions): int
     {
         if ($record->key === null) {
             return $this->whenKeyIsNull->partition($record, $partitions);

@@ -7,7 +7,7 @@ namespace Thesis\Kafka\Protocol\Record;
 use Thesis\Kafka\Compressor;
 use Thesis\Kafka\Crc32;
 use Thesis\Kafka\Exception\CompressionFailed;
-use Thesis\Kafka\ProduceRecord;
+use Thesis\Kafka\Producer;
 use Thesis\Kafka\Protocol\Writer;
 
 /**
@@ -131,7 +131,7 @@ final class RecordBatch implements \Countable
         }
     }
 
-    public function append(ProduceRecord $record): void
+    public function append(Producer\Record $record): void
     {
         /** @var non-negative-int $timestamp */
         $timestamp = $record->timestamp ?? (int) floor(microtime(true) * 1000);
@@ -227,7 +227,7 @@ final class RecordBatch implements \Countable
     /**
      * @return positive-int
      */
-    public static function recordOverhead(ProduceRecord $record): int
+    public static function recordOverhead(Producer\Record $record): int
     {
         // attributes + timestampDelta + offsetDelta
         $size = 1 + 10 + 5;

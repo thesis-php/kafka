@@ -6,7 +6,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Thesis\Kafka\Client;
 use Thesis\Kafka\Config;
-use Thesis\Kafka\ProduceRecord;
+use Thesis\Kafka\Producer;
 
 $client = new Client(new Config(
     seeds: [
@@ -14,10 +14,11 @@ $client = new Client(new Config(
         'kafka-2:9092',
         'kafka-3:9092',
     ],
-    producer: new Config\ProducerConfig(
-        defaultTopic: 'events',
-    ),
 ));
 
-$future = $client->produce(new ProduceRecord('x', 'y'));
+$producer = $client->createProducer(new Producer\Config(
+    defaultTopic: 'events',
+));
+
+$future = $producer->produce(new Producer\Record('x', 'y'));
 dump($future->await());

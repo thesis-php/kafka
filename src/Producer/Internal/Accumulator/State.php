@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Producer\Accumulator;
+namespace Thesis\Kafka\Producer\Internal\Accumulator;
 
 /**
  * @internal

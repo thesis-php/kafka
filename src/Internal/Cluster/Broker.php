@@ -8,9 +8,9 @@ use Amp\Cancellation;
 use Amp\Future;
 use Amp\NullCancellation;
 use Thesis\Kafka\Config\Endpoint;
+use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal;
 use Thesis\Kafka\Internal\Connection;
-use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\Generated;
 use function Amp\async;
 
@@ -38,7 +38,7 @@ final class Broker
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
      * @return ($reply is Connection\Reply::Expected ? T : null)
-     * @throws KafkaException
+     * @throws Exception
      */
     public function request(
         Generated\Request $request,

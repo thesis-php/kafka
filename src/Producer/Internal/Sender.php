@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Producer;
+namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\Future;
-use Thesis\Kafka\Config\ProducerConfig;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Producer;
 use function Amp\async;
 
 /**
@@ -28,7 +28,7 @@ final class Sender
      */
     public function __construct(
         private readonly Cluster $cluster,
-        private readonly ProducerConfig $config,
+        private readonly Producer\Config $config,
         private readonly \Traversable $batches,
     ) {}
 

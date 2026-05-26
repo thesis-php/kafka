@@ -8,6 +8,7 @@ use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Data\DataSet;
 use Testo\Test;
+use Thesis\Kafka\Producer\Hasher\Murmur2Hasher;
 
 /**
  * @see https://github.com/apache/kafka/blob/trunk/clients/src/test/java/org/apache/kafka/common/utils/UtilsTest.java#L106

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka;
+namespace Thesis\Kafka\Producer;
 
 /**
  * The Producer guarantees exactly one instance per (Partitioner, topic)
@@ -17,5 +17,5 @@ interface TopicPartitioner
      * @param positive-int $partitions number of partitions currently available
      * @return non-negative-int chosen index in [0, $partitions - 1]
      */
-    public function partition(ProduceRecord $record, int $partitions): int;
+    public function partition(Record $record, int $partitions): int;
 }

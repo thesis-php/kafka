@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka;
+namespace Thesis\Kafka\Producer;
+
+use Thesis\Kafka\RecordHeader;
 
 /**
  *  A record to be sent to a Kafka topic.
@@ -20,7 +22,7 @@ namespace Thesis\Kafka;
  *
  * @api
  */
-final readonly class ProduceRecord
+final readonly class Record
 {
     /**
      * @param ?string $key null is a valid record key (compacted-topic tombstone)

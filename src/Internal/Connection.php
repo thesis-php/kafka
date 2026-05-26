@@ -13,12 +13,12 @@ use Amp\Socket\Socket;
 use Revolt\EventLoop;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Config\Endpoint;
+use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\ConnectionClosed;
 use Thesis\Kafka\Exception\MalformedResponse;
 use Thesis\Kafka\Exception\NoCompatibleRequestVersion;
 use Thesis\Kafka\Exception\NoCompatibleSaslMechanism;
 use Thesis\Kafka\Exception\ProtocolError;
-use Thesis\Kafka\KafkaException;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
@@ -81,7 +81,7 @@ final class Connection
      * @template R of Generated\Response
      * @param Connection\Call<R> $call
      * @return ($reply is Connection\Reply::Expected ? R : null)
-     * @throws KafkaException
+     * @throws Exception
      * @throws Pipeline\DisposedException
      */
     public function call(
@@ -167,7 +167,7 @@ final class Connection
     }
 
     /**
-     * @throws KafkaException
+     * @throws Exception
      */
     public function versionsHandshake(Cancellation $cancellation): void
     {
@@ -217,7 +217,7 @@ final class Connection
     }
 
     /**
-     * @throws KafkaException
+     * @throws Exception
      */
     public function authenticate(Cancellation $cancellation): void
     {
@@ -321,7 +321,7 @@ final class Connection
     }
 
     /**
-     * @throws KafkaException
+     * @throws Exception
      */
     private function doSaslAuthenticate(
         SASL\Authenticator $authenticator,

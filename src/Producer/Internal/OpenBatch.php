@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Producer;
+namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\DeferredFuture;
-use Thesis\Kafka\ProduceResult;
+use Thesis\Kafka\Producer;
 use Thesis\Kafka\Protocol\Record\RecordBatch;
 
 /**
@@ -17,7 +17,7 @@ final class OpenBatch implements \Countable
      * @param non-empty-string $id
      * @param non-empty-string $topic
      * @param non-negative-int $partition
-     * @param list<DeferredFuture<ProduceResult>> $futures one per appended record, indexed positionally
+     * @param list<DeferredFuture<Producer\Produced>> $futures one per appended record, indexed positionally
      */
     public function __construct(
         public readonly string $id,

@@ -2,19 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Producer\Sender;
+namespace Thesis\Kafka\Producer\Internal\Sender;
 
 use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
-use Thesis\Kafka\Acks;
-use Thesis\Kafka\Config\ProducerConfig;
+use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\NoAvailablePartitionLeader;
 use Thesis\Kafka\Exception\UnknownPartition;
 use Thesis\Kafka\Exception\UnknownTopic;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\Connection;
-use Thesis\Kafka\Internal\Producer\ReadyBatch;
-use Thesis\Kafka\KafkaException;
+use Thesis\Kafka\Producer;
+use Thesis\Kafka\Producer\Internal\ReadyBatch;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
 
@@ -25,7 +24,7 @@ final readonly class BatchProducer
 {
     public function __construct(
         private Cluster $cluster,
-        private ProducerConfig $config,
+        private Producer\Config $config,
     ) {}
 
     public function produce(ReadyBatch $batch): void
@@ -38,7 +37,7 @@ final readonly class BatchProducer
                 $request = $this->createRequest($batch);
                 $response = $this->cluster->request(
                     $request,
-                    reply: $this->config->acks === Acks::None ? Connection\Reply::None : Connection\Reply::Expected,
+                    reply: $this->config->acks === Producer\Acks::None ? Connection\Reply::None : Connection\Reply::Expected,
                     brokerId: $leaderId,
                 );
 
@@ -85,7 +84,7 @@ final readonly class BatchProducer
      * @param non-empty-string $topic
      * @param non-negative-int $partition
      * @return non-negative-int
-     * @throws KafkaException
+     * @throws Exception
      */
     private function partitionLeader(
         string $topic,

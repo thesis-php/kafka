@@ -7,7 +7,9 @@ namespace Thesis\Kafka\Partitioner;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Test;
-use Thesis\Kafka\ProduceRecord;
+use Thesis\Kafka\Producer\Partitioner\RandomPartitioner;
+use Thesis\Kafka\Producer\Partitioner\RandomTopicPartitioner;
+use Thesis\Kafka\Producer\Record;
 
 #[Covers(RandomTopicPartitioner::class)]
 #[Covers(RandomPartitioner::class)]
@@ -18,14 +20,14 @@ final class RandomTopicPartitionerTest
     {
         $partitioner = new RandomPartitioner()->forTopic('x');
 
-        Assert::int($partitioner->partition(new ProduceRecord(value: null), 1))->lessThanOrEqual(0);
+        Assert::int($partitioner->partition(new Record(value: null), 1))->lessThanOrEqual(0);
     }
 
     #[Test]
     public function sticksToChosenPartitionUntilRotate(): void
     {
         $partitioner = new RandomPartitioner()->forTopic('x');
-        $record = new ProduceRecord(value: null);
+        $record = new Record(value: null);
         $partition = $partitioner->partition($record, 3);
 
         Assert::int($partition)->between(0, 3);
@@ -40,7 +42,7 @@ final class RandomTopicPartitionerTest
     {
         /** @var RandomTopicPartitioner $partitioner */
         $partitioner = new RandomPartitioner()->forTopic('x');
-        $record = new ProduceRecord(value: null);
+        $record = new Record(value: null);
 
         $current = $partitioner->partition($record, 3);
         $partitioner->rotate($current, 3);
@@ -57,7 +59,7 @@ final class RandomTopicPartitionerTest
     {
         /** @var RandomTopicPartitioner $partitioner */
         $partitioner = new RandomPartitioner()->forTopic('x');
-        $record = new ProduceRecord(value: null);
+        $record = new Record(value: null);
 
         $current = $partitioner->partition($record, 3);
         $foreign = ($current + 1) % 3;
@@ -72,7 +74,7 @@ final class RandomTopicPartitionerTest
     {
         /** @var RandomTopicPartitioner $partitioner */
         $partitioner = new RandomPartitioner()->forTopic('x');
-        $record = new ProduceRecord(value: null);
+        $record = new Record(value: null);
 
         $current = $partitioner->partition($record, 3);
         $partitioner->rotate($current, 3);

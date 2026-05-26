@@ -7,7 +7,9 @@ namespace Thesis\Kafka\Partitioner;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Test;
-use Thesis\Kafka\ProduceRecord;
+use Thesis\Kafka\Producer\Partitioner\RoundRobinPartitioner;
+use Thesis\Kafka\Producer\Partitioner\RoundRobinTopicPartitioner;
+use Thesis\Kafka\Producer\Record;
 
 #[Covers(RoundRobinTopicPartitioner::class)]
 #[Covers(RoundRobinPartitioner::class)]
@@ -18,14 +20,14 @@ final class RoundRobinTopicPartitionerTest
     {
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
 
-        Assert::same($partitioner->partition(new ProduceRecord(value: null), 1), 0);
+        Assert::same($partitioner->partition(new Record(value: null), 1), 0);
     }
 
     #[Test]
     public function startsAtZeroAndSticksUntilRotate(): void
     {
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProduceRecord(value: null);
+        $record = new Record(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -39,7 +41,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProduceRecord(value: null);
+        $record = new Record(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -58,7 +60,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProduceRecord(value: null);
+        $record = new Record(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 
@@ -72,7 +74,7 @@ final class RoundRobinTopicPartitionerTest
     {
         /** @var RoundRobinTopicPartitioner $partitioner */
         $partitioner = new RoundRobinPartitioner()->forTopic('x');
-        $record = new ProduceRecord(value: null);
+        $record = new Record(value: null);
 
         Assert::same($partitioner->partition($record, 3), 0);
 

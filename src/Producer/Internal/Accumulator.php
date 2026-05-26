@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Producer;
+namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\DeferredFuture;
 use Amp\Future;
@@ -10,9 +10,9 @@ use Amp\Pipeline;
 use Revolt\EventLoop;
 use Thesis\Kafka\Compressor;
 use Thesis\Kafka\Crc32;
-use Thesis\Kafka\ProduceRecord;
-use Thesis\Kafka\ProduceResult;
-use Thesis\Kafka\Protocol\Record;
+use Thesis\Kafka\Producer;
+use Thesis\Kafka\Protocol\Record\RecordBatch;
+use Thesis\Kafka\Protocol\Record\RecordBatchAttributes;
 use Thesis\Time\TimeSpan;
 
 /**
@@ -44,7 +44,7 @@ final class Accumulator implements \IteratorAggregate
     /** @var non-empty-string */
     private string $batchId = 'a';
 
-    /** @var array<\Closure(non-empty-string, non-negative-int): void> */
+    /** @var list<\Closure(non-empty-string, non-negative-int): void> */
     private array $callbacks = [];
 
     /**
@@ -65,12 +65,12 @@ final class Accumulator implements \IteratorAggregate
      *
      * @param non-empty-string $topic
      * @param non-negative-int $partition
-     * @return Future<ProduceResult>
+     * @return Future<Producer\Produced>
      */
     public function append(
         string $topic,
         int $partition,
-        ProduceRecord $record,
+        Producer\Record $record,
     ): Future {
         if ($this->state === Accumulator\State::Dead) {
             throw new \LogicException('Accumulator is dead, create the new one.');
@@ -85,11 +85,12 @@ final class Accumulator implements \IteratorAggregate
 
         $open ??= $this->openNew($topic, $partition);
 
-        /** @var DeferredFuture<ProduceResult> $deferred */
+        /** @var DeferredFuture<Producer\Produced> $deferred */
         $deferred = new DeferredFuture();
         $open->batch->append($record);
         $open->futures[] = $deferred;
 
+        // TODO: manual flush!
         if ($this->batchSize !== -1 && $open->batch->estimatedSize() >= $this->batchSize) {
             $this->release($open);
         }
@@ -107,7 +108,7 @@ final class Accumulator implements \IteratorAggregate
 
     public function flush(): void
     {
-        /** @var list<Future<ProduceResult>> $futures */
+        /** @var list<Future<Producer\Produced>> $futures */
         $futures = [];
 
         foreach ($this->open as $partitions) {
@@ -148,8 +149,8 @@ final class Accumulator implements \IteratorAggregate
      */
     private function openNew(string $topic, int $partition): OpenBatch
     {
-        $batch = new Record\RecordBatch(
-            attributes: new Record\RecordBatchAttributes(
+        $batch = new RecordBatch(
+            attributes: new RecordBatchAttributes(
                 compression: $this->compressor?->codec() ?? Compressor\Codec::None,
             ),
             compressor: $this->compressor,
@@ -213,7 +214,7 @@ final class Accumulator implements \IteratorAggregate
         }
     }
 
-    private function batchReady(OpenBatch $open, ProduceRecord $record): bool
+    private function batchReady(OpenBatch $open, Producer\Record $record): bool
     {
         if ($this->batchSize === -1) {
             return false;
@@ -223,7 +224,7 @@ final class Accumulator implements \IteratorAggregate
             return false;
         }
 
-        $expectedSize = $open->batch->estimatedSize() + Record\RecordBatch::recordOverhead($record);
+        $expectedSize = $open->batch->estimatedSize() + RecordBatch::recordOverhead($record);
 
         return $expectedSize >= $this->batchSize;
     }

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Hasher;
+namespace Thesis\Kafka\Producer\Hasher;
 
-use Thesis\Kafka\Hasher;
+use Thesis\Kafka\Producer\Hasher;
 
 /**
  * MurmurHash2, the exact variant used by the Apache Kafka Java client.

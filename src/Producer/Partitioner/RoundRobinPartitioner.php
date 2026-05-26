@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Partitioner;
+namespace Thesis\Kafka\Producer\Partitioner;
 
-use Thesis\Kafka\Partitioner;
-use Thesis\Kafka\TopicPartitioner;
+use Thesis\Kafka\Producer\Partitioner;
+use Thesis\Kafka\Producer\TopicPartitioner;
 
 /**
  * @api

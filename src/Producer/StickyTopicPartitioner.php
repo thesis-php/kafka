@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka;
+namespace Thesis\Kafka\Producer;
 
 /**
  * Optional extension for TopicPartitioner that want to "stick" to one

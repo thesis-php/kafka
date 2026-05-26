@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Exception;
 
-use Thesis\Kafka\KafkaException;
+use Thesis\Kafka\Exception;
 
 /**
  * @api
  */
-final class NoAvailableController extends KafkaException {}
+final class NoAvailableController extends Exception {}

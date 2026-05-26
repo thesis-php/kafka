@@ -2,18 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Config;
+namespace Thesis\Kafka\Producer;
 
-use Thesis\Kafka\Acks;
 use Thesis\Kafka\Compressor;
 use Thesis\Kafka\Crc32;
-use Thesis\Kafka\Partitioner;
 use Thesis\Time\TimeSpan;
 
 /**
  * @api
  */
-final readonly class ProducerConfig
+final readonly class Config
 {
     public const int DEFAULT_LINGER_MS = 5;
     public const int DEFAULT_BATCH_SIZE = 16384; // 16Kb

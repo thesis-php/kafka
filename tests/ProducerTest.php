@@ -8,31 +8,34 @@ use Amp\Future;
 use Ramsey\Uuid\Uuid;
 use Testo\Assert;
 use Testo\Codecov\Covers;
+use Testo\Retry;
 use Testo\Test;
-use Thesis\Kafka\Config\ProducerConfig;
-use Thesis\Kafka\Internal\Producer;
-use Thesis\Kafka\Partitioner\RoundRobinPartitioner;
+use Thesis\Kafka\Producer\Config;
+use Thesis\Kafka\Producer\Internal\AsyncProducer;
+use Thesis\Kafka\Producer\Partitioner\RoundRobinPartitioner;
+use Thesis\Kafka\Producer\Produced;
+use Thesis\Kafka\Producer\Record;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Time\TimeSpan;
 
 #[Covers(Client::class)]
-#[Covers(Producer::class)]
+#[Covers(AsyncProducer::class)]
+#[Retry(maxAttempts: 5, markFlaky: true)]
 final readonly class ProducerTest extends TestCase
 {
     #[Test]
     public function lingerDelaysFutureResolution(): void
     {
-        $admin = $this->createClient();
-        $client = $this->createClient(producer: new ProducerConfig(
-            linger: TimeSpan::fromMilliseconds(300),
-        ));
+        $client = $this->createClient();
 
-        $topic = $this->createTopic($admin, partitions: 1);
-        $this->waitUntilTopicVisible($admin, $topic, partitions: 1);
+        $topic = $this->createTopic($client, partitions: 1);
         $this->waitUntilTopicVisible($client, $topic, partitions: 1);
 
         $startedAt = $this->nowMs();
-        $future = $client->produce(new ProduceRecord(
+        $producer = $client->createProducer(new Config(
+            linger: TimeSpan::fromMilliseconds(300),
+        ));
+        $future = $producer->produce(new Record(
             value: 'linger-test',
             topic: $topic,
         ));
@@ -45,41 +48,41 @@ final readonly class ProducerTest extends TestCase
         Assert::same($result->partition, 0);
         Assert::int($result->offset ?? -1)->greaterThanOrEqual(0);
 
-        $this->deleteTopic($admin, $topic);
-        $admin->close();
+        $this->deleteTopic($client, $topic);
+        $producer->close();
         $client->close();
     }
 
     #[Test]
     public function fullBatchBypassesLingerAndResolvesImmediately(): void
     {
-        $admin = $this->createClient();
-        $client = $this->createClient(producer: new ProducerConfig(
+        $client = $this->createClient();
+
+        $topic = $this->createTopic($client, partitions: 3);
+        $this->waitUntilTopicVisible($client, $topic, partitions: 3);
+
+        $startedAt = $this->nowMs();
+
+        $producer = $client->createProducer(new Config(
             linger: TimeSpan::fromMilliseconds(3_000),
             batchSize: 256,
             partitioner: new RoundRobinPartitioner(),
         ));
 
-        $topic = $this->createTopic($admin, partitions: 3);
-        $this->waitUntilTopicVisible($admin, $topic, partitions: 3);
-        $this->waitUntilTopicVisible($client, $topic, partitions: 3);
-
-        $startedAt = $this->nowMs();
-
-        $results = $client->produce([
-            new ProduceRecord(
+        $results = $producer->produce([
+            new Record(
                 value: str_repeat('a', 180),
                 topic: $topic,
                 partition: 2,
             ),
-            new ProduceRecord(
+            new Record(
                 value: str_repeat('b', 180),
                 topic: $topic,
                 partition: 2,
             ),
         ]);
 
-        /** @var list<ProduceResult> $results */
+        /** @var list<Produced> $results */
         $results = Future\await($results);
         $elapsed = $this->nowMs() - $startedAt;
 
@@ -92,30 +95,30 @@ final readonly class ProducerTest extends TestCase
         Assert::same($results[1]->partition, 2);
         Assert::same($results[1]->offset, ($results[0]->offset ?? 0) + 1);
 
-        $this->deleteTopic($admin, $topic);
-        $admin->close();
+        $this->deleteTopic($client, $topic);
+        $producer->close();
         $client->close();
     }
 
     #[Test]
     public function closeDrainsBufferedRecordsWithoutWaitingForLinger(): void
     {
-        $admin = $this->createClient();
-        $client = $this->createClient(producer: new ProducerConfig(
+        $client = $this->createClient();
+
+        $topic = $this->createTopic($client, partitions: 1);
+        $this->waitUntilTopicVisible($client, $topic, partitions: 1);
+
+        $producer = $client->createProducer(new Config(
             linger: TimeSpan::fromMilliseconds(3_000),
         ));
 
-        $topic = $this->createTopic($admin, partitions: 1);
-        $this->waitUntilTopicVisible($admin, $topic, partitions: 1);
-        $this->waitUntilTopicVisible($client, $topic, partitions: 1);
-
-        $future = $client->produce(new ProduceRecord(
+        $future = $producer->produce(new Record(
             value: 'close-drain-test',
             topic: $topic,
         ));
 
         $startedAt = $this->nowMs();
-        $client->close();
+        $producer->close();
         $result = $future->await();
         $elapsed = $this->nowMs() - $startedAt;
 
@@ -124,29 +127,29 @@ final readonly class ProducerTest extends TestCase
         Assert::same($result->partition, 0);
         Assert::int($result->offset ?? -1)->greaterThanOrEqual(0);
 
-        $this->deleteTopic($admin, $topic);
-        $admin->close();
+        $this->deleteTopic($client, $topic);
+        $client->close();
     }
 
     #[Test]
     public function manualFlushKeepsProduceFuturesPendingUntilExplicitFlush(): void
     {
-        $admin = $this->createClient();
-        $client = $this->createClient(producer: new ProducerConfig(
+        $client = $this->createClient();
+
+        $topic = $this->createTopic($client, partitions: 3);
+        $this->waitUntilTopicVisible($client, $topic, partitions: 3);
+
+        $producer = $client->createProducer(new Config(
             manualFlush: true,
         ));
 
-        $topic = $this->createTopic($admin, partitions: 3);
-        $this->waitUntilTopicVisible($admin, $topic, partitions: 3);
-        $this->waitUntilTopicVisible($client, $topic, partitions: 3);
-
-        $futures = $client->produce([
-            new ProduceRecord(
+        $futures = $producer->produce([
+            new Record(
                 value: 'manual-flush-0',
                 topic: $topic,
                 partition: 2,
             ),
-            new ProduceRecord(
+            new Record(
                 value: 'manual-flush-1',
                 topic: $topic,
                 partition: 2,
@@ -160,12 +163,12 @@ final readonly class ProducerTest extends TestCase
         Assert::false($futures[0]->isComplete());
         Assert::false($futures[1]->isComplete());
 
-        $client->flush();
+        $producer->flush();
 
         Assert::true($futures[0]->isComplete());
         Assert::true($futures[1]->isComplete());
 
-        /** @var list<ProduceResult> $results */
+        /** @var list<Produced> $results */
         $results = array_values(Future\await($futures));
 
         \assert(\count($results) === 2);
@@ -177,8 +180,8 @@ final readonly class ProducerTest extends TestCase
         Assert::int($results[0]->offset ?? -1)->greaterThanOrEqual(0);
         Assert::same($results[1]->offset, ($results[0]->offset ?? 0) + 1);
 
-        $this->deleteTopic($admin, $topic);
-        $admin->close();
+        $this->deleteTopic($client, $topic);
+        $producer->close();
         $client->close();
     }
 

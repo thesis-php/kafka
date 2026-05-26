@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Producer;
+namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\DeferredFuture;
-use Thesis\Kafka\ProduceResult;
+use Thesis\Kafka\Producer;
 use Thesis\Kafka\Protocol\Record\RecordBatch;
 
 /**
@@ -16,7 +16,7 @@ final readonly class ReadyBatch
     /**
      * @param non-empty-string $topic
      * @param non-negative-int $partition
-     * @param list<DeferredFuture<ProduceResult>> $futures
+     * @param list<DeferredFuture<Producer\Produced>> $futures
      */
     public function __construct(
         public string $topic,
@@ -32,7 +32,7 @@ final readonly class ReadyBatch
     public function complete(?int $offset, ?int $timestamp): void
     {
         foreach ($this->futures as $idx => $future) {
-            $future->complete(new ProduceResult(
+            $future->complete(new Producer\Produced(
                 topic: $this->topic,
                 partition: $this->partition,
                 offset: $offset !== null ? $offset + $idx : null,

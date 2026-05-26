@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\Producer\OpenBatch;
+namespace Thesis\Kafka\Producer\Internal\OpenBatch;
 
 /**
  * @internal

@@ -2,41 +2,36 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal;
+namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\Cancellation;
 use Amp\Future;
 use Amp\NullCancellation;
-use Thesis\Kafka\Config\ProducerConfig;
+use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\UnknownTopic;
-use Thesis\Kafka\Internal\Producer\Accumulator;
-use Thesis\Kafka\Internal\Producer\Sender;
-use Thesis\Kafka\KafkaException;
-use Thesis\Kafka\ProduceRecord;
-use Thesis\Kafka\ProduceResult;
-use Thesis\Kafka\StickyTopicPartitioner;
-use Thesis\Kafka\TopicPartitioner;
+use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Producer;
 use function Amp\weakClosure;
 
 /**
- * Sends records to Kafka. One {@see Producer} owns one {@see Accumulator} (per-
+ * Sends records to Kafka. One {@see AsyncProducer} owns one {@see Accumulator} (per-
  * (topic, partition) batching) and one {@see Sender} (background coroutine
  * that drains the {@see Accumulator}).
  *
  * @internal
  */
-final class Producer
+final class AsyncProducer implements Producer
 {
     private readonly Accumulator $accumulator;
 
     private readonly Sender $sender;
 
-    /** @var array<non-empty-string, TopicPartitioner> */
+    /** @var array<non-empty-string, Producer\TopicPartitioner> */
     private array $partitioners = [];
 
     public function __construct(
         private readonly Cluster $cluster,
-        private readonly ProducerConfig $config,
+        private readonly Producer\Config $config,
     ) {
         $this->accumulator = new Accumulator(
             compressor: $config->compressor,
@@ -55,19 +50,56 @@ final class Producer
         $this->sender->start();
     }
 
-    /**
-     * Produce a record asynchronously. The returned future completes
-     * when the broker acknowledges the write (or with an error if the write failed).
-     *
-     * For {@see Acks::None} the future completes as soon as the
-     * write hits the socket, with offset and timestamp set to null —
-     * the broker doesn't send a response, so neither is known.
-     *
-     * @return Future<ProduceResult>
-     * @throws KafkaException
-     */
-    public function produce(ProduceRecord $record, Cancellation $cancellation = new NullCancellation()): Future
+    #[\Override]
+    public function produce(
+        Producer\Record|array $records,
+        Cancellation $cancellation = new NullCancellation(),
+    ): Future|array {
+        if (\is_array($records)) {
+            return array_map(
+                fn(Producer\Record $record) => $this->doProduce($record, $cancellation),
+                $records,
+            );
+        }
+
+        return $this->doProduce($records, $cancellation);
+    }
+
+    #[\Override]
+    public function produceSync(
+        Producer\Record|array $records,
+        Cancellation $cancellation = new NullCancellation(),
+    ): Producer\Produced|array {
+        $futures = $this->produce($records, $cancellation);
+        if (\is_array($futures)) {
+            /** @var non-empty-list<Producer\Produced> */
+            return Future\await($futures);
+        }
+
+        return $futures->await();
+    }
+
+    #[\Override]
+    public function flush(): void
     {
+        $this->accumulator->flush();
+    }
+
+    #[\Override]
+    public function close(): void
+    {
+        $this->accumulator->close();
+        $this->sender->stop();
+    }
+
+    /**
+     * @return Future<Producer\Produced>
+     * @throws Exception
+     */
+    private function doProduce(
+        Producer\Record $record,
+        Cancellation $cancellation = new NullCancellation(),
+    ): Future {
         $topic = $record->topic
             ?? $this->config->defaultTopic
             ?? throw new \LogicException('No producer record topic and no default');
@@ -83,17 +115,6 @@ final class Producer
         return $this->accumulator->append($topic, $partition, $record);
     }
 
-    public function flush(): void
-    {
-        $this->accumulator->flush();
-    }
-
-    public function close(): void
-    {
-        $this->accumulator->close();
-        $this->sender->stop();
-    }
-
     /**
      * @param non-empty-string $topic
      * @param non-negative-int $partition
@@ -101,7 +122,7 @@ final class Producer
     private function rotatePartitioner(string $topic, int $partition): void
     {
         $partitioner = $this->partitioners[$topic] ?? null;
-        if ($partitioner instanceof StickyTopicPartitioner) {
+        if ($partitioner instanceof Producer\StickyTopicPartitioner) {
             $metadata = $this->cluster->metadata()->topics[$topic] ?? null;
 
             /** @var positive-int $partitions */

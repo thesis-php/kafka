@@ -7,7 +7,4 @@ namespace Thesis\Kafka;
 /**
  * @api
  */
-interface Hasher
-{
-    public function hash(string $key): int;
-}
+abstract class Exception extends \Exception {}
