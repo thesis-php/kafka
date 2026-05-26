@@ -7,7 +7,6 @@ namespace Thesis\Kafka;
 use Amp\Cancellation;
 use Amp\Future;
 use Amp\NullCancellation;
-use Thesis\Kafka\Producer\Acks;
 
 /**
  * A Producer buffers records by (topic, partition) into batches, sends
@@ -26,7 +25,7 @@ interface Producer
      * broker acknowledges the write, or fails with an error if the
      * write could not be delivered after the configured retries.
      *
-     * For {@see Acks::None} the broker doesn't send a response at all,
+     * For {@see Producer\Acks::None} the broker doesn't send a response at all,
      * so the Future completes as soon as the write reaches the socket
      * and both offset and timestamp on the ProduceResult are null.
      *
