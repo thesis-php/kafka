@@ -13,8 +13,8 @@ use Thesis\Kafka\Producer\Acks;
  * A Producer buffers records by (topic, partition) into batches, sends
  * them to the partition leader, and resolves a Future for each record
  * with either a {@see Producer\Produced} or an error. Lifecycle: open via
- * {@see Client::createProducer()}, drain pending via {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::flush()}, release
- * resources via {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::close()}. Closing is idempotent.
+ * {@see Client::createProducer()}, drain pending via {@see Producer::flush()}, release
+ * resources via {@see Producer::close()}. Closing is idempotent.
  *
  * @api
  */
@@ -54,16 +54,16 @@ interface Producer
     ): Future|array;
 
     /**
-     * Blocking counterpart to {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::produce()}: hands the record(s)
+     * Blocking counterpart to {@see Producer::produce()}: hands the record(s)
      * off and waits for delivery to complete. For a single record this
      * returns one ProduceResult; for a bulk call it returns a list
      * preserving input order.
      *
-     * Unlike {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::produce()}, the supplied Cancellation here applies
+     * Unlike {@see Producer::produce()}, the supplied Cancellation here applies
      * to the wait as well — cancelling while waiting will throw out of
      * this call, but the records have already been buffered and will
      * be sent regardless. To observe their result later, use
-     * {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::produce()} and keep the Futures.
+     * {@see Producer::produce()} and keep the Futures.
      *
      * @param Producer\Record|non-empty-list<Producer\Record> $records
      * @return ($records is non-empty-list<Producer\Record>
@@ -83,18 +83,18 @@ interface Producer
      * is nothing left to send and every previously-issued Future has
      * resolved.
      *
-     * After {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::flush()}, the producer is still operational — new records
+     * After {@see Producer::flush()}, the producer is still operational — new records
      * can be produced normally. Use this between logical "phases" of
      * work when you want to make sure earlier records have landed
-     * before continuing. For permanent shutdown, prefer {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::close()}.
+     * before continuing. For permanent shutdown, prefer {@see Producer::close()}.
      *
      * @throws Exception
      */
     public function flush(): void;
 
     /**
-     * Drain pending records (as {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::flush()} does), stop the sender
-     * coroutine, and reject any subsequent {@see \Thesis\Kafka\Producer\Internal\AsyncProducer::produce()} calls. Idempotent
+     * Drain pending records (as {@see Producer::flush()} does), stop the sender
+     * coroutine, and reject any subsequent {@see Producer::produce()} calls. Idempotent
      * — calling close() twice is a no-op the second time.
      *
      * @throws Exception
