@@ -13,6 +13,35 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class Record
 {
     /**
+     * Size in bytes of the fixed batch header. Counted from the
+     * attributes field through numRecords, excluding the records
+     * section itself. Used as the initial value for the on-wire size
+     * estimate.
+     *
+     *   firstOffset          (int64)  8
+     *   length               (int32)  4
+     *   partitionLeaderEpoch (int32)  4
+     *   magic                (int8)   1
+     *   crc                  (int32)  4
+     *   attributes           (int16)  2
+     *   lastOffsetDelta      (int32)  4
+     *   firstTimestamp       (int64)  8
+     *   maxTimestamp         (int64)  8
+     *   producerId           (int64)  8
+     *   producerEpoch        (int16)  2
+     *   baseSequence         (int32)  4
+     *   numRecords           (int32)  4
+     *                              = 61 bytes
+     */
+    public const int HEADER_SIZE = 61;
+
+    /**
+     * RecordBatch wire format version. Magic 0 and 1 are the legacy
+     * MessageV0/V1 formats, we only produce and understand magic 2.
+     */
+    public const int MAGIC = 2;
+
+    /**
      * @param list<Record\Header> $headers
      */
     public function __construct(

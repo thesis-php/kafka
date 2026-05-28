@@ -2,19 +2,21 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka;
+namespace Thesis\Kafka\Consumer;
+
+use Thesis\Kafka\RecordHeader;
 
 /**
  * @api
  */
-final readonly class ConsumeRecord
+final readonly class Record
 {
     /**
      * @param non-empty-string $topic
      * @param non-negative-int $partition
      * @param non-negative-int $offset
      * @param list<RecordHeader> $headers
-     * @param non-negative-int $timestamp in milliseconds
+     * @param int $timestamp in milliseconds
      */
     public function __construct(
         public string $topic,

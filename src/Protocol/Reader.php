@@ -31,6 +31,26 @@ final class Reader
     }
 
     /**
+     * Bytes left between the cursor and the end of the buffer.
+     *
+     * @return non-negative-int
+     */
+    public function remaining(): int
+    {
+        return max($this->length - $this->offset, 0);
+    }
+
+    /**
+     * @param non-negative-int $skip
+     */
+    public function peekInt32(int $skip = 0): int
+    {
+        $value = $this->peek(4, $skip);
+
+        return Endian\Order::Network->unpackInt32($value);
+    }
+
+    /**
      * @param non-negative-int $offset
      */
     public function reset(int $offset): void
@@ -349,7 +369,7 @@ final class Reader
      * @return non-empty-string
      * @throws UnexpectedEof
      */
-    private function read(int $n): string
+    public function read(int $n): string
     {
         if ($this->offset + $n > $this->length) {
             throw new UnexpectedEof(\sprintf(
@@ -365,5 +385,24 @@ final class Reader
 
         /** @var non-empty-string */
         return $chunk;
+    }
+
+    /**
+     * @param positive-int $n
+     * @param non-negative-int $skip
+     * @return non-empty-string
+     */
+    public function peek(int $n, int $skip = 0): string
+    {
+        $at = $this->offset + $skip;
+
+        if (($at + $n) > $this->length) {
+            throw new \OutOfBoundsException(
+                "Cannot peek {$n}: out of buffer bounds.",
+            );
+        }
+
+        /** @var non-empty-string */
+        return substr($this->buffer, $at, $n);
     }
 }

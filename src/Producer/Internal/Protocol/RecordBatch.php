@@ -43,35 +43,6 @@ use Thesis\Kafka\Protocol\Writer;
  */
 final class RecordBatch implements \Countable
 {
-    /**
-     * Size in bytes of the fixed batch header. Counted from the
-     * attributes field through numRecords, excluding the records
-     * section itself. Used as the initial value for the on-wire size
-     * estimate.
-     *
-     *   firstOffset          (int64)  8
-     *   length               (int32)  4
-     *   partitionLeaderEpoch (int32)  4
-     *   magic                (int8)   1
-     *   crc                  (int32)  4
-     *   attributes           (int16)  2
-     *   lastOffsetDelta      (int32)  4
-     *   firstTimestamp       (int64)  8
-     *   maxTimestamp         (int64)  8
-     *   producerId           (int64)  8
-     *   producerEpoch        (int16)  2
-     *   baseSequence         (int32)  4
-     *   numRecords           (int32)  4
-     *                              = 61 bytes
-     */
-    private const int HEADER_SIZE = 61;
-
-    /**
-     * RecordBatch wire format version. Magic 0 and 1 are the legacy
-     * MessageV0/V1 formats, we only produce and understand magic 2.
-     */
-    private const int MAGIC = 2;
-
     /** @var list<Record> */
     private array $records = [];
 
@@ -97,7 +68,7 @@ final class RecordBatch implements \Countable
      *
      * @var positive-int
      */
-    private int $estimatedSize = self::HEADER_SIZE;
+    private int $estimatedSize = Record::HEADER_SIZE;
 
     public function __construct(
         private readonly Compressor $compressor,
@@ -187,7 +158,7 @@ final class RecordBatch implements \Countable
         $batch->writeInt64($this->firstOffset);
         $batch->writeInt32($length);
         $batch->writeInt32($this->partitionLeaderEpoch);
-        $batch->writeInt8(self::MAGIC);
+        $batch->writeInt8(Record::MAGIC);
         $batch->writeInt32($this->crc32c->compute($crcBuffer));
         $batch->write($crcBuffer);
 
