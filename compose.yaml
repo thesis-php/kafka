@@ -89,7 +89,7 @@ services:
       CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
 
   kafka-ui:
-    image: provectuslabs/kafka-ui
+    image: ghcr.io/kafbat/kafka-ui:latest
     ports:
       - "8080:8080"
     restart: always
