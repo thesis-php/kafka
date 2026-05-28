@@ -6,7 +6,6 @@ namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\DeferredFuture;
 use Thesis\Kafka\Producer;
-use Thesis\Kafka\Protocol\Record\RecordBatch;
 
 /**
  * @internal
@@ -23,7 +22,7 @@ final class OpenBatch implements \Countable
         public readonly string $id,
         public readonly string $topic,
         public readonly int $partition,
-        public readonly RecordBatch $batch,
+        public readonly Protocol\RecordBatch $batch,
         public private(set) OpenBatch\State $state = OpenBatch\State::Accumulate,
         public array $futures = [],
     ) {}

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol\Record;
+namespace Thesis\Kafka\Internal\Protocol;
 
 use Thesis\Kafka\Protocol\Reader;
 use Thesis\Kafka\Protocol\Writer;
@@ -13,7 +13,7 @@ use Thesis\Kafka\Protocol\Writer;
 final readonly class Record
 {
     /**
-     * @param list<Header> $headers
+     * @param list<Record\Header> $headers
      */
     public function __construct(
         public int $timestampDelta,
@@ -58,7 +58,7 @@ final readonly class Record
         $headers = [];
 
         for ($index = 0; $index < $headersCount; ++$index) {
-            $headers[] = Header::decode($body);
+            $headers[] = Record\Header::decode($body);
         }
 
         return new self(

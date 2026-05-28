@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol\Record;
+namespace Thesis\Kafka\Internal\Protocol\Record;
 
 use Thesis\Kafka\Protocol\Reader;
 use Thesis\Kafka\Protocol\Writer;

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol\Record;
+namespace Thesis\Kafka\Internal\Protocol\Record;
 
 use Thesis\Kafka\Compressor\Codec;
 
 /**
  * @internal
  */
-final readonly class RecordBatchAttributes
+final readonly class Attributes
 {
     public function __construct(
         public Codec $compression = Codec::None,

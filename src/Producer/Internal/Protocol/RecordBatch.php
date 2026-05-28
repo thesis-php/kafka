@@ -2,11 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Protocol\Record;
+namespace Thesis\Kafka\Producer\Internal\Protocol;
 
 use Thesis\Kafka\Compressor;
 use Thesis\Kafka\Crc32;
 use Thesis\Kafka\Exception\CompressionFailed;
+use Thesis\Kafka\Internal\Protocol\Record;
 use Thesis\Kafka\Producer;
 use Thesis\Kafka\Protocol\Writer;
 
@@ -100,7 +101,7 @@ final class RecordBatch implements \Countable
 
     public function __construct(
         private readonly Compressor $compressor,
-        private readonly RecordBatchAttributes $attributes,
+        private readonly Record\Attributes $attributes,
         private readonly Crc32 $crc32c = new Crc32\Native(),
         private readonly int $producerId = -1,
         private readonly int $producerEpoch = -1,
@@ -134,7 +135,7 @@ final class RecordBatch implements \Countable
             key: $record->key,
             value: $record->value,
             headers: array_map(
-                Header::fromRecordHeader(...),
+                Record\Header::fromRecordHeader(...),
                 $record->headers,
             ),
         );

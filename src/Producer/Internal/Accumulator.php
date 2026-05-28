@@ -10,9 +10,8 @@ use Amp\Pipeline;
 use Revolt\EventLoop;
 use Thesis\Kafka\Compressor;
 use Thesis\Kafka\Crc32;
+use Thesis\Kafka\Internal\Protocol\Record;
 use Thesis\Kafka\Producer;
-use Thesis\Kafka\Protocol\Record\RecordBatch;
-use Thesis\Kafka\Protocol\Record\RecordBatchAttributes;
 use Thesis\Time\TimeSpan;
 
 /**
@@ -149,9 +148,9 @@ final class Accumulator implements \IteratorAggregate
      */
     private function openNew(string $topic, int $partition): OpenBatch
     {
-        $batch = new RecordBatch(
+        $batch = new Protocol\RecordBatch(
             compressor: $this->compressor,
-            attributes: new RecordBatchAttributes(
+            attributes: new Record\Attributes(
                 compression: $this->compressor->codec(),
             ),
             crc32c: $this->crc32,
@@ -224,7 +223,7 @@ final class Accumulator implements \IteratorAggregate
             return false;
         }
 
-        $expectedSize = $open->batch->estimatedSize() + RecordBatch::recordOverhead($record);
+        $expectedSize = $open->batch->estimatedSize() + Protocol\RecordBatch::recordOverhead($record);
 
         return $expectedSize >= $this->batchSize;
     }

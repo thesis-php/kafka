@@ -6,7 +6,6 @@ namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\DeferredFuture;
 use Thesis\Kafka\Producer;
-use Thesis\Kafka\Protocol\Record\RecordBatch;
 
 /**
  * @internal
@@ -21,7 +20,7 @@ final readonly class ReadyBatch
     public function __construct(
         public string $topic,
         public int $partition,
-        public RecordBatch $batch,
+        public Protocol\RecordBatch $batch,
         public array $futures,
     ) {}
 
