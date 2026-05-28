@@ -51,7 +51,7 @@ final class Accumulator implements \IteratorAggregate
      * @param -1|positive-int $batchSize
      */
     public function __construct(
-        private readonly ?Compressor $compressor,
+        private readonly Compressor $compressor,
         private readonly Crc32 $crc32,
         private readonly int $batchSize,
         private readonly TimeSpan $linger,
@@ -150,10 +150,10 @@ final class Accumulator implements \IteratorAggregate
     private function openNew(string $topic, int $partition): OpenBatch
     {
         $batch = new RecordBatch(
-            attributes: new RecordBatchAttributes(
-                compression: $this->compressor?->codec() ?? Compressor\Codec::None,
-            ),
             compressor: $this->compressor,
+            attributes: new RecordBatchAttributes(
+                compression: $this->compressor->codec(),
+            ),
             crc32c: $this->crc32,
         );
 

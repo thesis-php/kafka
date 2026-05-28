@@ -71,8 +71,6 @@ final class RecordBatch implements \Countable
      */
     private const int MAGIC = 2;
 
-    private readonly RecordBatchAttributes $attributes;
-
     /** @var list<Record> */
     private array $records = [];
 
@@ -101,8 +99,8 @@ final class RecordBatch implements \Countable
     private int $estimatedSize = self::HEADER_SIZE;
 
     public function __construct(
-        ?RecordBatchAttributes $attributes = null,
-        private readonly ?Compressor $compressor = null,
+        private readonly Compressor $compressor,
+        private readonly RecordBatchAttributes $attributes,
         private readonly Crc32 $crc32c = new Crc32\Native(),
         private readonly int $producerId = -1,
         private readonly int $producerEpoch = -1,
@@ -110,21 +108,9 @@ final class RecordBatch implements \Countable
         private readonly int $partitionLeaderEpoch = -1,
         private readonly int $firstOffset = 0,
     ) {
-        $this->attributes = $attributes ?? new RecordBatchAttributes(
-            compression: $this->compressor?->codec() ?? Compressor\Codec::None,
-        );
-
         $codec = $this->attributes->compression;
 
-        if ($codec === Compressor\Codec::None && $this->compressor !== null) {
-            throw new \LogicException('RecordBatch with Codec::None must not have a compressor.');
-        }
-
-        if ($codec !== Compressor\Codec::None && $this->compressor === null) {
-            throw new \LogicException("RecordBatch with codec {$codec->name} requires a compressor.");
-        }
-
-        if ($this->compressor !== null && $this->compressor->codec() !== $codec) {
+        if ($this->compressor->codec() !== $codec) {
             throw new \LogicException(
                 "Compressor codec {$this->compressor->codec()->name} does not match attributes codec {$codec->name}.",
             );
@@ -169,9 +155,7 @@ final class RecordBatch implements \Countable
 
         /** @var non-empty-string $recordsBytes */
         $recordsBytes = (string) $records;
-        if ($this->compressor !== null) {
-            $recordsBytes = $this->compressor->compress($recordsBytes);
-        }
+        $recordsBytes = $this->compressor->compress($recordsBytes);
 
         $crc = new Writer();
         $crc->writeInt16($this->attributes->toInt());

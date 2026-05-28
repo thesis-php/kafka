@@ -37,7 +37,7 @@ final readonly class Config
         public int $produceAttempts = self::DEFAULT_PRODUCE_ATTEMPTS,
         int $batchSize = self::DEFAULT_BATCH_SIZE,
         public Acks $acks = Acks::All,
-        public ?Compressor $compressor = null,
+        public Compressor $compressor = Compressor\None::Compressor,
         public Crc32 $crc32 = new Crc32\Native(),
         public Partitioner $partitioner = new Partitioner\HashPartitioner(),
         public bool $manualFlush = false,
