@@ -17,9 +17,12 @@ final readonly class Lz4 implements Compressor
      */
     public function __construct()
     {
-        if (!\extension_loaded('lz4')) {
-            throw new MissingExtension('lz4');
-        }
+        requiresExtension('lz4');
+    }
+
+    public static function supported(): bool
+    {
+        return \extension_loaded('lz4');
     }
 
     #[\Override]

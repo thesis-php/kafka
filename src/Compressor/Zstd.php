@@ -17,9 +17,12 @@ final readonly class Zstd implements Compressor
      */
     public function __construct()
     {
-        if (!\extension_loaded('zstd')) {
-            throw new MissingExtension('zstd');
-        }
+        requiresExtension('zstd');
+    }
+
+    public static function supported(): bool
+    {
+        return \extension_loaded('zstd');
     }
 
     #[\Override]

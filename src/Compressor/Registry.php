@@ -31,6 +31,29 @@ final readonly class Registry implements
         }
     }
 
+    public static function available(): self
+    {
+        $compressors = [];
+
+        if (Snappy::supported()) {
+            $compressors[] = new Compressor\Snappy();
+        }
+
+        if (Zstd::supported()) {
+            $compressors[] = new Compressor\Zstd();
+        }
+
+        if (Lz4::supported()) {
+            $compressors[] = new Compressor\Lz4();
+        }
+
+        if (Gzip::supported()) {
+            $compressors[] = new Compressor\Gzip();
+        }
+
+        return new self($compressors);
+    }
+
     /**
      * @no-named-arguments
      */

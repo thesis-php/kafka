@@ -17,9 +17,12 @@ final readonly class Snappy implements Compressor
      */
     public function __construct()
     {
-        if (!\extension_loaded('snappy')) {
-            throw new MissingExtension('snappy');
-        }
+        requiresExtension('snappy');
+    }
+
+    public static function supported(): bool
+    {
+        return \extension_loaded('snappy');
     }
 
     #[\Override]

@@ -5,7 +5,20 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Compressor;
 
 use Thesis\Kafka\Exception\CompressionFailed;
+use Thesis\Kafka\Exception\MissingExtension;
 use function Thesis\exceptionally;
+
+/**
+ * @api
+ * @param non-empty-string $extension
+ * @throws MissingExtension
+ */
+function requiresExtension(string $extension): void
+{
+    if (!\extension_loaded($extension)) {
+        throw new MissingExtension($extension);
+    }
+}
 
 /**
  * @api

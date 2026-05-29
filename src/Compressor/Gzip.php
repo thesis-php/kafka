@@ -18,9 +18,12 @@ final readonly class Gzip implements Compressor
     public function __construct(
         private int $level = 6,
     ) {
-        if (!\extension_loaded('zlib')) {
-            throw new MissingExtension('zlib');
-        }
+        requiresExtension('zlib');
+    }
+
+    public static function supported(): bool
+    {
+        return \extension_loaded('zlib');
     }
 
     #[\Override]
