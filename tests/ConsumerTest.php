@@ -12,6 +12,7 @@ use Testo\Test;
 use Thesis\Kafka\Consumer\AutoOffsetReset;
 use Thesis\Kafka\Consumer\ConsumeMode;
 use Thesis\Kafka\Exception\ConsumerBusy;
+use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 #[Covers(Consumer::class)]
@@ -25,7 +26,7 @@ final readonly class ConsumerTest extends TestCase
         $topic = $this->createTopic($client, prefix: 'thesis-consumer');
         $this->waitUntilTopicVisible($client, $topic);
 
-        $producer = $client->createProducer(new Producer\Config());
+        $producer = $client->createProducer();
         $produced = $producer->produceSync([
             new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
             new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
@@ -62,7 +63,7 @@ final readonly class ConsumerTest extends TestCase
         $topic = $this->createTopic($client, prefix: 'thesis-consumer');
         $this->waitUntilTopicVisible($client, $topic);
 
-        $producer = $client->createProducer(new Producer\Config());
+        $producer = $client->createProducer();
         $old = $producer->produceSync([
             new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
             new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
@@ -136,6 +137,89 @@ final readonly class ConsumerTest extends TestCase
             $consumer->close();
             Assert::array($first->await())->hasCount(0);
         } finally {
+            $this->deleteTopic($client, $topic);
+            $client->close();
+        }
+    }
+
+    #[Test]
+    public function callbackConsumeProcessesRecords(): void
+    {
+        $client = $this->createClient();
+        $topic = $this->createTopic($client, prefix: 'thesis-consumer');
+        $this->waitUntilTopicVisible($client, $topic);
+
+        $producer = $client->createProducer();
+        $produced = $producer->produceSync([
+            new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
+            new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
+        ]);
+
+        \assert(\count($produced) === 2);
+
+        $seen = [];
+
+        $subscription = $client->consume(
+            $topic,
+            static function (array $records, ConsumerSession $session) use (&$seen): void {
+                foreach ($records as $record) {
+                    $seen[] = $record;
+                }
+
+                if (\count($seen) >= 2) {
+                    $session->close();
+                }
+            },
+        );
+
+        $subscription->join();
+
+        \assert(\count($seen) === 2);
+
+        Assert::count($seen, 2);
+        Assert::same($seen[0]->value, 'old-0');
+        Assert::same($seen[1]->value, 'old-1');
+        Assert::same($seen[0]->offset, 0);
+        Assert::same($seen[1]->offset, 1);
+
+        $producer->close();
+        $this->deleteTopic($client, $topic);
+        $client->close();
+    }
+
+    #[Test]
+    public function callbackConsumeJoinRethrowsHandlerFailure(): void
+    {
+        $client = $this->createClient();
+        $topic = $this->createTopic($client, prefix: 'thesis-consumer');
+        $this->waitUntilTopicVisible($client, $topic);
+
+        $producer = $client->createProducer();
+        $producer->produceSync(new Producer\Record(
+            value: 'boom',
+            topic: $topic,
+            partition: 0,
+        ));
+
+        $subscription = $client->consume(
+            $topic,
+            static function (): void {
+                throw new \RuntimeException('handler boom');
+            },
+            new Consumer\Config(
+                maxWait: TimeSpan::fromMilliseconds(1),
+                maxBytes: 20,
+            ),
+        );
+
+        try {
+            $subscription->join();
+
+            Assert::fail('Expected join() to rethrow the handler failure.');
+        } catch (\RuntimeException $e) {
+            Assert::same($e->getMessage(), 'handler boom');
+        } finally {
+            $producer->close();
             $this->deleteTopic($client, $topic);
             $client->close();
         }

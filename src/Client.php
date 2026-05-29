@@ -58,6 +58,42 @@ final readonly class Client
         );
     }
 
+    /**
+     * Consume records in the background through a callback, the simplified
+     * form most people reach for first.
+     *
+     * Creates a consumer for the given topics and config, then spawns a
+     * background loop that drains record batches and invokes $handler for
+     * each one. Each batch is a non-empty list of records from a single
+     * (topic, partition), in offset order. The handler also receives a
+     * {@see ConsumerSession}, so it can commit progress or stop the
+     * subscription from inside.
+     *
+     * Returns immediately with a {@see ConsumerSubscription} handle: call
+     * {@see ConsumerSubscription::close()} to stop the loop and release the
+     * consumer, or {@see ConsumerSubscription::join()} to block until it
+     * finishes (and surface any error the handler or fetch loop threw).
+     *
+     * For direct, pull-based control over reading — including Poll mode and
+     * manual iteration — create a consumer with {@see createConsumer()} and
+     * drive {@see Consumer::consume()} yourself.
+     *
+     * @param non-empty-string|non-empty-list<non-empty-string> $topics
+     * @param callable(non-empty-list<Consumer\Record>, ConsumerSession): void $handler
+     */
+    public function consume(
+        string|array $topics,
+        callable $handler,
+        Consumer\Config $config = new Consumer\Config(),
+    ): ConsumerSubscription {
+        $consumer = $this->createConsumer($topics, $config);
+
+        $ctx = new Consumer\Internal\CallableHandler($consumer);
+        $ctx->handle($handler);
+
+        return $ctx;
+    }
+
     public function close(): void
     {
         $this->admin->close();

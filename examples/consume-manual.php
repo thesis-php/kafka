@@ -6,7 +6,6 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Thesis\Kafka\Client;
 use Thesis\Kafka\Config;
-use Thesis\Kafka\Consumer;
 use function Amp\async;
 use function Amp\trapSignal;
 
@@ -18,9 +17,7 @@ $client = new Client(new Config(
     ],
 ));
 
-$consumer = $client->createConsumer(['events'], new Consumer\Config(
-    autoOffsetReset: Consumer\AutoOffsetReset::Earliest,
-));
+$consumer = $client->createConsumer(['events']);
 
 $future = async(static function () use (
     $consumer,
@@ -37,4 +34,3 @@ foreach ($consumer->consume() as $batch) {
 }
 
 $future->await();
-dump('done');
