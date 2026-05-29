@@ -74,7 +74,7 @@ final readonly class AdminClientTest extends TestCase
     }
 
     #[Test]
-    public function createTopic(): void
+    public function createsTopic(): void
     {
         $client = $this->createClient();
 
@@ -100,7 +100,7 @@ final readonly class AdminClientTest extends TestCase
     }
 
     #[Test]
-    public function deleteTopic(): void
+    public function deletesTopic(): void
     {
         $client = $this->createClient();
 
@@ -247,30 +247,6 @@ final readonly class AdminClientTest extends TestCase
             topicNames: [$topicName],
             timeoutMs: 10_000,
         ));
-    }
-
-    private function waitUntilTopicVisible(
-        Client $client,
-        string $topicName,
-    ): Generated\MetadataResponse {
-        return $this->waitUntil(
-            $client,
-            new Generated\MetadataRequest(
-                topics: [
-                    new Generated\MetadataRequest\MetadataRequestTopic(
-                        topicId: Uuid::fromString(Uuid::NIL),
-                        name: $topicName,
-                    ),
-                ],
-                allowAutoTopicCreation: false,
-                includeClusterAuthorizedOperations: false,
-                includeTopicAuthorizedOperations: false,
-            ),
-            static fn(Generated\MetadataResponse $response) => \count($response->topics) === 1
-                && $response->topics[0]->name === $topicName
-                && $response->topics[0]->errorCode === 0,
-            "Topic '{$topicName}' did not become visible in metadata.",
-        );
     }
 
     private function waitUntilTopicConfigsVisible(

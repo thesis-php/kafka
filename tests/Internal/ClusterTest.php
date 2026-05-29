@@ -4,14 +4,11 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Internal;
 
-use Ramsey\Uuid\Uuid;
 use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Test;
-use Thesis\Kafka\Client;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Internal\Cluster\Metadata\TopicKind;
-use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\TestCase;
 
 #[Covers(Cluster::class)]
@@ -58,8 +55,8 @@ final readonly class ClusterTest extends TestCase
     public function refreshMetadataMergesRequestedTopicsWithPreloadTopics(): void
     {
         $client = $this->createClient();
-        $preloadedTopic = $this->createTopic($client, 'thesis-preload');
-        $requestedTopic = $this->createTopic($client, 'thesis-request');
+        $preloadedTopic = $this->createTopic($client, prefix: 'thesis-preload');
+        $requestedTopic = $this->createTopic($client, prefix: 'thesis-request');
         $this->waitUntilTopicVisible($client, $preloadedTopic);
         $this->waitUntilTopicVisible($client, $requestedTopic);
 
@@ -117,77 +114,6 @@ final readonly class ClusterTest extends TestCase
             seeds: self::SEEDS,
             preloadTopics: $preloadTopics,
         ));
-    }
-
-    /**
-     * @return non-empty-string
-     */
-    private function createTopic(Client $client, string $prefix = 'thesis-it'): string
-    {
-        $topicName = $this->topicName($prefix);
-
-        $response = $client->request(new Generated\CreateTopicsRequest(
-            topics: [
-                new Generated\CreateTopicsRequest\CreatableTopic(
-                    name: $topicName,
-                    numPartitions: 1,
-                    replicationFactor: 1,
-                    assignments: [],
-                    configs: [],
-                ),
-            ],
-            timeoutMs: 10_000,
-            validateOnly: false,
-        ));
-
-        Assert::array($response->topics)->hasCount(1);
-        Assert::same($response->topics[0]->name ?? null, $topicName);
-        Assert::same($response->topics[0]->errorCode ?? null, 0);
-
-        return $topicName;
-    }
-
-    private function deleteTopic(Client $client, string $topicName): void
-    {
-        $response = $client->request(new Generated\DeleteTopicsRequest(
-            topics: [
-                new Generated\DeleteTopicsRequest\DeleteTopicState(
-                    name: $topicName,
-                    topicId: Uuid::fromString(Uuid::NIL),
-                ),
-            ],
-            topicNames: [$topicName],
-            timeoutMs: 10_000,
-        ));
-
-        Assert::array($response->responses)->hasCount(1);
-        Assert::same($response->responses[0]->name ?? null, $topicName);
-        Assert::same($response->responses[0]->errorCode ?? null, 0);
-    }
-
-    private function waitUntilTopicVisible(Client $client, string $topicName): void
-    {
-        for ($attempt = 0; $attempt < 10; ++$attempt) {
-            $response = $client->request(new Generated\MetadataRequest(
-                topics: [
-                    new Generated\MetadataRequest\MetadataRequestTopic(
-                        topicId: Uuid::fromString(Uuid::NIL),
-                        name: $topicName,
-                    ),
-                ],
-                allowAutoTopicCreation: false,
-                includeClusterAuthorizedOperations: false,
-                includeTopicAuthorizedOperations: false,
-            ));
-
-            if (\count($response->topics) === 1 && $response->topics[0]->name === $topicName && $response->topics[0]->errorCode === 0) {
-                return;
-            }
-
-            usleep(200_000);
-        }
-
-        Assert::fail("Topic '{$topicName}' did not become visible in metadata.");
     }
 
     /**
