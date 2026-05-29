@@ -12,6 +12,11 @@ use Thesis\Kafka\Internal\Protocol\Record;
  */
 final class Records
 {
+    /** @var positive-int */
+    public int $nextOffset {
+        get => $this->firstOffset + $this->lastOffsetDelta + 1; // @phpstan-ignore return.type
+    }
+
     /**
      * @param non-empty-string $topic
      * @param non-negative-int $partition
