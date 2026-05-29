@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Internal;
 
 use Amp\Cancellation;
+use Amp\CancelledException;
 use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\NullCancellation;
@@ -83,6 +84,7 @@ final class Connection
      * @return ($reply is Connection\Reply::Expected ? R : null)
      * @throws Exception
      * @throws Pipeline\DisposedException
+     * @throws CancelledException
      */
     public function call(
         Connection\Call $call,

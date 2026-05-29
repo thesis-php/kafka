@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Internal\Cluster;
 
 use Amp\Cancellation;
+use Amp\CancelledException;
 use Amp\Future;
 use Amp\NullCancellation;
 use Thesis\Kafka\Config\Endpoint;
@@ -39,6 +40,7 @@ final class Broker
      * @param Generated\Request<T> $request
      * @return ($reply is Connection\Reply::Expected ? T : null)
      * @throws Exception
+     * @throws CancelledException
      */
     public function request(
         Generated\Request $request,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Internal;
 
 use Amp\Cancellation;
+use Amp\CancelledException;
 use Amp\Future;
 use Amp\NullCancellation;
 use Amp\TimeoutCancellation;
@@ -72,6 +73,7 @@ final class Cluster
      * @param ?non-negative-int $brokerId
      * @return ($reply is Connection\Reply::Expected ? T : null)
      * @throws Exception
+     * @throws CancelledException
      */
     public function request(
         Generated\Request $request,
@@ -389,6 +391,7 @@ final class Cluster
 
                 $topics[$topicName] = new Cluster\Metadata\TopicMetadata(
                     name: $topicName,
+                    topicId: $topic->topicId,
                     kind: $topic->isInternal ? Cluster\Metadata\TopicKind::Internal : Cluster\Metadata\TopicKind::User,
                     partitions: $partitions,
                 );
