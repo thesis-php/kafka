@@ -31,11 +31,30 @@ final readonly class Client
         return $this->admin->request($request, $cancellation);
     }
 
-    public function createProducer(Producer\Config $config): Producer
+    public function createProducer(Producer\Config $config = new Producer\Config()): Producer
     {
         return new Producer\Internal\AsyncProducer(
             new Internal\Cluster($this->config),
             $config,
+        );
+    }
+
+    /**
+     * @param non-empty-string|non-empty-list<non-empty-string> $topics
+     */
+    public function createConsumer(
+        string|array $topics,
+        Consumer\Config $config = new Consumer\Config(),
+    ): Consumer {
+        if (!\is_array($topics)) {
+            $topics = [$topics];
+        }
+
+        return new Consumer\Internal\AsyncConsumer(
+            cluster: new Internal\Cluster($this->config),
+            config: $config,
+            requestTimeout: $this->config->requestTimeout,
+            topics: $topics,
         );
     }
 
