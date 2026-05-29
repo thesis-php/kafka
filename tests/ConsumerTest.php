@@ -13,7 +13,6 @@ use Thesis\Kafka\Consumer\AutoOffsetReset;
 use Thesis\Kafka\Consumer\ConsumeMode;
 use Thesis\Kafka\Exception\ConsumerBusy;
 use function Amp\async;
-use function Amp\delay;
 
 #[Covers(Consumer::class)]
 #[Retry(maxAttempts: 5, markFlaky: true)]
@@ -126,13 +125,11 @@ final readonly class ConsumerTest extends TestCase
 
         $first = async(static fn(): array => iterator_to_array($consumer->consume()));
 
-        delay(0.05);
-
         try {
-            iterator_to_array($consumer->consume(
+            $consumer->consume(
                 ConsumeMode::Poll,
                 new TimeoutCancellation(0.1),
-            ));
+            );
 
             Assert::fail('Expected ConsumerBusy to be thrown.');
         } catch (ConsumerBusy) {

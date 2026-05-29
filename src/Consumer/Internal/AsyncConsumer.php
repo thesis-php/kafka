@@ -86,23 +86,7 @@ final class AsyncConsumer implements Consumer
 
         $cancellation ??= new NullCancellation();
 
-        try {
-            if (!$this->iterator->continue($cancellation)) {
-                return;
-            }
-
-            yield $this->iterator->getValue();
-
-            if ($mode === Consumer\ConsumeMode::Stream) {
-                while ($this->iterator->continue($cancellation)) {
-                    yield $this->iterator->getValue();
-                }
-            }
-        } catch (CancelledException) {
-            return;
-        } finally {
-            $this->consume = AsyncConsumer\ConsumeState::Ready;
-        }
+        return $this->createIterator($mode, $cancellation);
     }
 
     #[\Override]
@@ -132,6 +116,32 @@ final class AsyncConsumer implements Consumer
         );
 
         Future\awaitAll($futures);
+    }
+
+    /**
+     * @return iterable<non-empty-list<Consumer\Record>>
+     */
+    private function createIterator(
+        Consumer\ConsumeMode $mode,
+        Cancellation $cancellation,
+    ): iterable {
+        try {
+            if (!$this->iterator->continue($cancellation)) {
+                return;
+            }
+
+            yield $this->iterator->getValue();
+
+            if ($mode === Consumer\ConsumeMode::Stream) {
+                while ($this->iterator->continue($cancellation)) {
+                    yield $this->iterator->getValue();
+                }
+            }
+        } catch (CancelledException) {
+            return;
+        } finally {
+            $this->consume = AsyncConsumer\ConsumeState::Ready;
+        }
     }
 
     /**
