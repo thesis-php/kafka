@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Consumer\Internal\TopicPartition;
+namespace Thesis\Kafka\Internal\TopicPartition;
 
-use Thesis\Kafka\Consumer\Internal\TopicPartition;
+use Thesis\Kafka\Internal\TopicPartition;
 
 /**
  * SplObjectStorage that hashes TopicPartition by (topic, partition)

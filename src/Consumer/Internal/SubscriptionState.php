@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Consumer\Internal;
 
 use Ramsey\Uuid\UuidInterface;
+use Thesis\Kafka\Internal\TopicPartition;
 
 /**
  * Tracks the fetch position and leader of every assigned partition.

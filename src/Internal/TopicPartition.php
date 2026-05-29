@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Consumer\Internal;
+namespace Thesis\Kafka\Internal;
 
 /**
  * Identifies a single partition of a topic. A value object used as the

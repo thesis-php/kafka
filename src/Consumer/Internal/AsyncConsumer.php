@@ -15,6 +15,7 @@ use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Time\TimeSpan;
