@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Internal\Cluster\Metadata;
 
+use Ramsey\Uuid\UuidInterface;
+
 /**
  * @internal
  */
@@ -15,6 +17,7 @@ final readonly class TopicMetadata implements \Countable
      */
     public function __construct(
         public string $name,
+        public UuidInterface $topicId,
         public TopicKind $kind,
         public array $partitions,
     ) {}
