@@ -33,13 +33,7 @@ final class AsyncProducer implements Producer
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
     ) {
-        $this->accumulator = new Accumulator(
-            compressor: $config->compressor,
-            crc32: $config->crc32,
-            batchSize: $config->batchSize,
-            linger: $config->linger,
-        );
-
+        $this->accumulator = new Accumulator($config);
         $this->sender = new Sender(
             cluster: $cluster,
             config: $config,

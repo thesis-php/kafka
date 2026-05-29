@@ -8,11 +8,9 @@ use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\Pipeline;
 use Revolt\EventLoop;
-use Thesis\Kafka\Compressor;
-use Thesis\Kafka\Crc32;
+use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Protocol\Record;
 use Thesis\Kafka\Producer;
-use Thesis\Time\TimeSpan;
 
 /**
  * @internal
@@ -46,14 +44,8 @@ final class Accumulator implements \IteratorAggregate
     /** @var list<\Closure(non-empty-string, non-negative-int): void> */
     private array $callbacks = [];
 
-    /**
-     * @param -1|positive-int $batchSize
-     */
     public function __construct(
-        private readonly Compressor $compressor,
-        private readonly Crc32 $crc32,
-        private readonly int $batchSize,
-        private readonly TimeSpan $linger,
+        private readonly Producer\Config $config,
     ) {
         $this->ready = new Pipeline\Queue();
     }
@@ -65,6 +57,7 @@ final class Accumulator implements \IteratorAggregate
      * @param non-empty-string $topic
      * @param non-negative-int $partition
      * @return Future<Producer\Produced>
+     * @throws Exception
      */
     public function append(
         string $topic,
@@ -78,6 +71,10 @@ final class Accumulator implements \IteratorAggregate
         $open = $this->open[$topic][$partition] ?? $this->openNew($topic, $partition);
 
         if ($this->batchReady($open, $record)) {
+            if ($this->config->manualFlush) {
+                throw new Exception\BatchFull();
+            }
+
             $this->release($open);
             $open = null;
         }
@@ -89,8 +86,7 @@ final class Accumulator implements \IteratorAggregate
         $open->batch->append($record);
         $open->futures[] = $deferred;
 
-        // TODO: manual flush!
-        if ($this->batchSize !== -1 && $open->batch->estimatedSize() >= $this->batchSize) {
+        if (!$this->config->manualFlush && $open->batch->estimatedSize() >= $this->config->batchSize) {
             $this->release($open);
         }
 
@@ -149,11 +145,11 @@ final class Accumulator implements \IteratorAggregate
     private function openNew(string $topic, int $partition): OpenBatch
     {
         $batch = new Protocol\RecordBatch(
-            compressor: $this->compressor,
+            compressor: $this->config->compressor,
             attributes: new Record\Attributes(
-                compression: $this->compressor->codec(),
+                compression: $this->config->compressor->codec(),
             ),
-            crc32c: $this->crc32,
+            crc32c: $this->config->crc32,
         );
 
         $batchId = $this->batchId;
@@ -168,12 +164,12 @@ final class Accumulator implements \IteratorAggregate
 
         $this->open[$topic][$partition] = $open;
 
-        if ($this->linger->isPositive()) {
+        if (!$this->config->manualFlush && $this->config->linger->isPositive()) {
             /** @var \WeakReference<OpenBatch> $reference */
             $reference = \WeakReference::create($open);
 
             $this->timers[$batchId] = EventLoop::delay(
-                $this->linger->toSeconds(3),
+                $this->config->linger->toSeconds(3),
                 function () use ($reference): void {
                     $open = $reference->get();
                     if ($open !== null) {
@@ -215,16 +211,12 @@ final class Accumulator implements \IteratorAggregate
 
     private function batchReady(OpenBatch $open, Producer\Record $record): bool
     {
-        if ($this->batchSize === -1) {
-            return false;
-        }
-
         if (\count($open) === 0) {
             return false;
         }
 
         $expectedSize = $open->batch->estimatedSize() + Protocol\RecordBatch::recordOverhead($record);
 
-        return $expectedSize >= $this->batchSize;
+        return $expectedSize >= $this->config->batchSize;
     }
 }

@@ -22,9 +22,6 @@ final readonly class Config
 
     public TimeSpan $produceTimeout;
 
-    /** @var -1|positive-int */
-    public int $batchSize;
-
     /**
      * @param ?non-empty-string $defaultTopic
      * @param positive-int $produceAttempts
@@ -35,7 +32,7 @@ final readonly class Config
         ?TimeSpan $linger = null,
         ?TimeSpan $produceTimeout = null,
         public int $produceAttempts = self::DEFAULT_PRODUCE_ATTEMPTS,
-        int $batchSize = self::DEFAULT_BATCH_SIZE,
+        public int $batchSize = self::DEFAULT_BATCH_SIZE,
         public Acks $acks = Acks::All,
         public Compressor $compressor = Compressor\None::Compressor,
         public Crc32 $crc32 = new Crc32\Native(),
@@ -43,13 +40,7 @@ final readonly class Config
         public bool $manualFlush = false,
     ) {
         $linger ??= TimeSpan::fromMilliseconds(self::DEFAULT_LINGER_MS);
-        if ($manualFlush) {
-            $linger = TimeSpan::fromMilliseconds(0);
-            $batchSize = -1;
-        }
-
         $this->linger = $linger;
         $this->produceTimeout = $produceTimeout ?? TimeSpan::fromSeconds(self::DEFAULT_PRODUCE_TIMEOUT_SECS);
-        $this->batchSize = $batchSize;
     }
 }

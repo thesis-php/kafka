@@ -9,7 +9,7 @@ use Testo\Assert;
 use Testo\Codecov\Covers;
 use Testo\Retry;
 use Testo\Test;
-use Thesis\Kafka\Producer\Config;
+use Thesis\Kafka\Exception\BatchFull;
 use Thesis\Kafka\Producer\Internal\AsyncProducer;
 use Thesis\Kafka\Producer\Partitioner\RoundRobinPartitioner;
 use Thesis\Kafka\Producer\Produced;
@@ -30,7 +30,7 @@ final readonly class ProducerTest extends TestCase
         $this->waitUntilTopicVisible($client, $topic);
 
         $startedAt = $this->nowMs();
-        $producer = $client->createProducer(new Config(
+        $producer = $client->createProducer(new Producer\Config(
             linger: TimeSpan::fromMilliseconds(300),
         ));
         $future = $producer->produce(new Record(
@@ -61,7 +61,7 @@ final readonly class ProducerTest extends TestCase
 
         $startedAt = $this->nowMs();
 
-        $producer = $client->createProducer(new Config(
+        $producer = $client->createProducer(new Producer\Config(
             linger: TimeSpan::fromMilliseconds(3_000),
             batchSize: 256,
             partitioner: new RoundRobinPartitioner(),
@@ -106,7 +106,7 @@ final readonly class ProducerTest extends TestCase
         $topic = $this->createTopic($client, prefix: 'thesis-producer');
         $this->waitUntilTopicVisible($client, $topic);
 
-        $producer = $client->createProducer(new Config(
+        $producer = $client->createProducer(new Producer\Config(
             linger: TimeSpan::fromMilliseconds(3_000),
         ));
 
@@ -137,7 +137,7 @@ final readonly class ProducerTest extends TestCase
         $topic = $this->createTopic($client, prefix: 'thesis-producer', partitions: 3);
         $this->waitUntilTopicVisible($client, $topic, partitions: 3);
 
-        $producer = $client->createProducer(new Config(
+        $producer = $client->createProducer(new Producer\Config(
             manualFlush: true,
         ));
 
@@ -177,6 +177,67 @@ final readonly class ProducerTest extends TestCase
         Assert::same($results[1]->partition, 2);
         Assert::int($results[0]->offset ?? -1)->greaterThanOrEqual(0);
         Assert::same($results[1]->offset, ($results[0]->offset ?? 0) + 1);
+
+        $this->deleteTopic($client, $topic);
+        $producer->close();
+        $client->close();
+    }
+
+    #[Test]
+    public function manualFlushThrowsBatchFull(): void
+    {
+        $client = $this->createClient();
+
+        $topic = $this->createTopic($client, prefix: 'thesis-producer', partitions: 3);
+        $this->waitUntilTopicVisible($client, $topic, partitions: 3);
+
+        $producer = $client->createProducer(new Producer\Config(
+            batchSize: 256,
+            manualFlush: true,
+        ));
+
+        $first = $producer->produce(new Record(
+            value: str_repeat('a', 180),
+            topic: $topic,
+            partition: 2,
+        ));
+
+        try {
+            $producer->produce(new Record(
+                value: str_repeat('b', 180),
+                topic: $topic,
+                partition: 2,
+            ));
+
+            Assert::fail('Expected BatchFull to be thrown.');
+        } catch (BatchFull $e) {
+            Assert::same(
+                $e->getMessage(),
+                'Batch is full in manual-flush mode; call flush() and retry the produce().',
+            );
+        }
+
+        $producer->flush();
+
+        $firstResult = $first->await();
+
+        Assert::same($firstResult->topic, $topic);
+        Assert::same($firstResult->partition, 2);
+        Assert::same($firstResult->offset, 0);
+
+        $second = $producer->produce(new Record(
+            value: 'after-flush',
+            topic: $topic,
+            partition: 2,
+        ));
+
+        $producer->flush();
+
+        $secondResult = $second->await();
+
+        Assert::same($secondResult->topic, $topic);
+        Assert::same($secondResult->partition, 2);
+        Assert::same($secondResult->offset, 1);
 
         $this->deleteTopic($client, $topic);
         $producer->close();
