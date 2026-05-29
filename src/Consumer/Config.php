@@ -39,7 +39,7 @@ final readonly class Config
         public int $minBytes = self::DEFAULT_MIN_BYTES,
         public int $maxBytes = self::DEFAULT_MAX_BYTES,
         public int $maxPartitionBytes = self::DEFAULT_MAX_PARTITION_BYTES,
-        public AutoOffsetReset $autoOffsetReset = AutoOffsetReset::Latest,
+        public AutoOffsetReset $autoOffsetReset = AutoOffsetReset::Earliest,
         public IsolationLevel $isolationLevel = IsolationLevel::ReadUncommitted,
         public int $prefetchBufferSize = self::DEFAULT_PREFETCH_BUFFER_SIZE,
         public ?GroupConfig $group = null,
