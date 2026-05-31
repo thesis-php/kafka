@@ -6,43 +6,46 @@ namespace Thesis\Kafka\Consumer\Internal;
 
 use Amp\CancelledException;
 use Amp\DeferredCancellation;
-use Amp\DeferredFuture;
-use Revolt\EventLoop;
+use Amp\Future;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\ConsumerSession;
 use Thesis\Kafka\ConsumerSubscription;
+use Thesis\Kafka\Exception;
+use function Amp\async;
 
 /**
  * @internal
  */
-final readonly class CallableHandler implements ConsumerSubscription
+final class CallableHandler implements ConsumerSubscription
 {
-    private DeferredCancellation $cancel;
+    private readonly DeferredCancellation $cancel;
 
-    /** @var DeferredFuture<null> */
-    private DeferredFuture $completion;
+    /** @var ?Future<mixed> */
+    private ?Future $handle = null;
 
     public function __construct(
-        private Consumer $consumer,
+        private readonly Consumer $consumer,
     ) {
         $this->cancel = new DeferredCancellation();
-        $this->completion = new DeferredFuture();
     }
 
     /**
      * @param callable(non-empty-list<Consumer\Record>, ConsumerSession): void $handler
+     * @throws Exception\ConsumerBusy
      */
     public function handle(callable $handler): void
     {
+        if ($this->handle !== null) {
+            throw new Exception\ConsumerBusy();
+        }
+
         $consumer = $this->consumer;
-        $completion = $this->completion;
         $cancellation = $this->cancel->getCancellation();
 
-        EventLoop::queue(static function () use (
+        $this->handle = async(static function () use (
             $handler,
             $consumer,
-            $completion,
-            $cancellation
+            $cancellation,
         ): void {
             try {
                 foreach ($consumer->consume(cancellation: $cancellation) as $records) {
@@ -50,13 +53,7 @@ final readonly class CallableHandler implements ConsumerSubscription
                 }
             } catch (CancelledException) {
                 // expected on close()
-            } catch (\Throwable $e) {
-                $completion->error($e);
             } finally {
-                if (!$completion->isComplete()) {
-                    $completion->complete();
-                }
-
                 $consumer->close();
             }
         });
@@ -72,7 +69,7 @@ final readonly class CallableHandler implements ConsumerSubscription
     #[\Override]
     public function join(): void
     {
-        $this->completion->getFuture()->await();
+        $this->handle?->await();
     }
 
     public function __destruct()
