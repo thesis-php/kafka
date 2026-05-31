@@ -71,16 +71,22 @@ final class Cluster
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
      * @param ?non-negative-int $brokerId
+     * @param ?Retry<T> $retry
      * @return ($reply is Connection\Reply::Expected ? T : null)
      * @throws Exception
      * @throws CancelledException
      */
-    public function request(
+    public function request(// @phpstan-ignore return.unusedType
         Generated\Request $request,
         ?Cancellation $cancellation = null,
         Connection\Reply $reply = Connection\Reply::Expected,
         ?int $brokerId = null,
+        ?Retry $retry = null,
     ): mixed {
+        if ($reply === Connection\Reply::None && $retry !== null) {
+            throw new \LogicException('Retry cannot be set with Reply::None.');
+        }
+
         $this->metadataCallbackId ??= EventLoop::repeat(
             $this->config->metadataMaxAge->toSeconds(),
             function (): void {
@@ -93,23 +99,19 @@ final class Cluster
         // who want different semantics pass their own Cancellation.
         $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds());
 
-        if ($brokerId !== null) {
-            $broker = $this->brokers[$brokerId] ?? throw new UnknownBroker($brokerId);
-            return $broker->request($request, $cancellation, $reply);
+        /** @var \Closure(): T $call */
+        $call = fn() => $this->doRequest(
+            request: $request,
+            cancellation: $cancellation,
+            reply: $reply,
+            brokerId: $brokerId,
+        );
+
+        if ($retry !== null) {
+            $call = $retry->do($call, $cancellation);
         }
 
-        // Metadata is special: it both feeds and uses the broker set,
-        // so it bypasses the normal routing and goes through the
-        // dedicated refresh path below.
-        if ($request instanceof Generated\MetadataRequest) {
-            return $this->doMetadataRequest($request, $cancellation); // @phpstan-ignore return.type
-        }
-
-        if ($request->apiKey()->requiresAnyListener(Generated\Listener::Controller)) {
-            return $this->doControllerRequest($request, $cancellation);
-        }
-
-        return $this->doBrokerRequest($request, $cancellation, $reply);
+        return $call();
     }
 
     public function close(): void
@@ -162,6 +164,39 @@ final class Cluster
         $this->doMetadataRequest($request, $cancellation);
 
         return $this->metadata;
+    }
+
+    /**
+     * @template T of Generated\Response
+     * @param Generated\Request<T> $request
+     * @param ?non-negative-int $brokerId
+     * @return ($reply is Connection\Reply::Expected ? T : null)
+     * @throws Exception
+     * @throws CancelledException
+     */
+    private function doRequest(
+        Generated\Request $request,
+        Cancellation $cancellation,
+        Connection\Reply $reply = Connection\Reply::Expected,
+        ?int $brokerId = null,
+    ): mixed {
+        if ($brokerId !== null) {
+            $broker = $this->brokers[$brokerId] ?? throw new UnknownBroker($brokerId);
+            return $broker->request($request, $cancellation, $reply);
+        }
+
+        // Metadata is special: it both feeds and uses the broker set,
+        // so it bypasses the normal routing and goes through the
+        // dedicated refresh path below.
+        if ($request instanceof Generated\MetadataRequest) {
+            return $this->doMetadataRequest($request, $cancellation); // @phpstan-ignore return.type
+        }
+
+        if ($request->apiKey()->requiresAnyListener(Generated\Listener::Controller)) {
+            return $this->doControllerRequest($request, $cancellation);
+        }
+
+        return $this->doBrokerRequest($request, $cancellation, $reply);
     }
 
     /**

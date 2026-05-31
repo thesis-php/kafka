@@ -10,6 +10,7 @@ use Amp\DeferredFuture;
 use Amp\Future;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
@@ -113,7 +114,13 @@ final class IdempotencyCoordinator
             keepPreparedTxn: false,
         );
 
-        $response = $this->cluster->request($request, $cancellation);
+        $response = $this->cluster->request(
+            request: $request,
+            cancellation: $cancellation,
+            retry: new Retry(
+                static fn(Generated\InitProducerIdResponse $response): ErrorCode => ErrorCode::from($response->errorCode),
+            ),
+        );
 
         $error = ErrorCode::from($response->errorCode);
         if ($error !== ErrorCode::None) {

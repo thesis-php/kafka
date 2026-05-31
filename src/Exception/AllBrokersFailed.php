@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Exception;
 
-use Thesis\Kafka\Exception;
+use Thesis\Kafka\NetworkException;
 
 /**
  * @api
  */
-final class AllBrokersFailed extends Exception
+final class AllBrokersFailed extends NetworkException
 {
     /**
      * @param array<non-empty-string, \Throwable> $reasons endpoint → cause

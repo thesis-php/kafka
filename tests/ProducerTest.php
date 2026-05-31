@@ -244,6 +244,32 @@ final readonly class ProducerTest extends TestCase
         $client->close();
     }
 
+    #[Test]
+    public function idempotentProducerPublishesSuccessfully(): void
+    {
+        $client = $this->createClient();
+
+        $topic = $this->createTopic($client, prefix: 'thesis-producer', partitions: 3);
+        $this->waitUntilTopicVisible($client, $topic, partitions: 3);
+
+        $producer = $client->createProducer(new Producer\Config(
+            idempotent: true,
+        ));
+
+        $result = $producer->produceSync(new Record(
+            value: 'idempotent-test',
+            topic: $topic,
+            partition: 2,
+        ));
+
+        Assert::same($result->topic, $topic);
+        Assert::same($result->partition, 2);
+        Assert::same($result->offset, 0);
+
+        $this->deleteTopic($client, $topic);
+        $producer->close();
+    }
+
     /**
      * @return non-negative-int
      */

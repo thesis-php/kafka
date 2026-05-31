@@ -46,8 +46,8 @@ final readonly class Config
         public Crc32 $crc32 = new Crc32\Native(),
         public Partitioner $partitioner = new Partitioner\HashPartitioner(),
         public bool $manualFlush = false,
-        public bool $idempotent = false,
         public int $maxInflightProduceRequest = self::DEFAULT_MAX_INFLIGHT_PRODUCE_REQUESTS,
+        public bool $idempotent = false,
     ) {
         if ($idempotent && $acks !== Acks::All) {
             throw new InvalidConfiguration('Idempotent producer requires Acks::All');
