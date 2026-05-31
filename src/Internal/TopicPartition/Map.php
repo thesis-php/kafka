@@ -23,4 +23,14 @@ final class Map extends \SplObjectStorage
     {
         return $object->key();
     }
+
+    /**
+     * @return iterable<array-key, TValue>
+     */
+    public function values(): iterable
+    {
+        foreach ($this as $key) {
+            yield $this[$key];
+        }
+    }
 }

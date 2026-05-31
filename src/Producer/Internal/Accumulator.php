@@ -41,7 +41,7 @@ final class Accumulator implements \IteratorAggregate
     /** @var non-empty-string */
     private string $batchId = 'a';
 
-    /** @var list<\Closure(non-empty-string, non-negative-int): void> */
+    /** @var list<\Closure(OpenBatch): void> */
     private array $callbacks = [];
 
     public function __construct(
@@ -63,12 +63,19 @@ final class Accumulator implements \IteratorAggregate
         string $topic,
         int $partition,
         Producer\Record $record,
+        ?Idempotency $idempotency = null,
+        int $sequence = 0,
     ): Future {
         if ($this->state === Accumulator\State::Dead) {
             throw new \LogicException('Accumulator is dead, create the new one.');
         }
 
-        $open = $this->open[$topic][$partition] ?? $this->openNew($topic, $partition);
+        $open = $this->open[$topic][$partition] ?? $this->openNew(
+            topic: $topic,
+            partition: $partition,
+            idempotency: $idempotency,
+            sequence: $sequence,
+        );
 
         if ($this->batchReady($open, $record)) {
             if ($this->config->manualFlush) {
@@ -79,7 +86,12 @@ final class Accumulator implements \IteratorAggregate
             $open = null;
         }
 
-        $open ??= $this->openNew($topic, $partition);
+        $open ??= $this->openNew(
+            topic: $topic,
+            partition: $partition,
+            idempotency: $idempotency,
+            sequence: $sequence,
+        );
 
         /** @var DeferredFuture<Producer\Produced> $deferred */
         $deferred = new DeferredFuture();
@@ -94,7 +106,7 @@ final class Accumulator implements \IteratorAggregate
     }
 
     /**
-     * @param \Closure(non-empty-string, non-negative-int): void $callback
+     * @param \Closure(OpenBatch): void $callback
      */
     public function onRelease(\Closure $callback): void
     {
@@ -142,14 +154,21 @@ final class Accumulator implements \IteratorAggregate
      * @param non-empty-string $topic
      * @param non-negative-int $partition
      */
-    private function openNew(string $topic, int $partition): OpenBatch
-    {
+    private function openNew(
+        string $topic,
+        int $partition,
+        ?Idempotency $idempotency = null,
+        int $sequence = 0,
+    ): OpenBatch {
         $batch = new Protocol\RecordBatch(
             compressor: $this->config->compressor,
             attributes: new Record\Attributes(
                 compression: $this->config->compressor->codec(),
             ),
             crc32c: $this->config->crc32,
+            producerId: $idempotency->producerId ?? -1,
+            producerEpoch: $idempotency->producerEpoch ?? -1,
+            baseSequence: $sequence,
         );
 
         $batchId = $this->batchId;
@@ -202,11 +221,17 @@ final class Accumulator implements \IteratorAggregate
             return;
         }
 
-        $this->ready->push($open->release());
-
+        // Run callbacks (partition rotation, sequence advance) BEFORE pushing to
+        // the ready queue. push() suspends when the buffer is full, and during
+        // that suspend a concurrent append for this (topic, partition) could open
+        // a new batch — which must see the advanced sequence and rotated
+        // partition. Running them first keeps that update synchronous and ordered
+        // ahead of any work the suspend lets in.
         foreach ($this->callbacks as $callback) {
-            $callback($open->topic, $open->partition);
+            $callback($open);
         }
+
+        $this->ready->push($open->release());
     }
 
     private function batchReady(OpenBatch $open, Producer\Record $record): bool

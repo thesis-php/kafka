@@ -10,6 +10,7 @@ use Amp\NullCancellation;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\UnknownTopic;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Producer;
 use function Amp\weakClosure;
 
@@ -22,6 +23,8 @@ use function Amp\weakClosure;
  */
 final class AsyncProducer implements Producer
 {
+    private readonly IdempotencyCoordinator $idempotencyCoordinator;
+
     private readonly Accumulator $accumulator;
 
     private readonly Sender $sender;
@@ -33,6 +36,7 @@ final class AsyncProducer implements Producer
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
     ) {
+        $this->idempotencyCoordinator = new IdempotencyCoordinator($cluster);
         $this->accumulator = new Accumulator($config);
         $this->sender = new Sender(
             cluster: $cluster,
@@ -41,7 +45,10 @@ final class AsyncProducer implements Producer
         );
 
         $this->accumulator->onRelease(weakClosure($this->rotatePartitioner(...)));
-        $this->sender->start();
+
+        if ($config->idempotent) {
+            $this->accumulator->onRelease(weakClosure($this->reserveSequence(...)));
+        }
     }
 
     #[\Override]
@@ -106,24 +113,42 @@ final class AsyncProducer implements Producer
 
         $partition = $record->partition ?? $partitioner->partition($record, \count($topicMetadata)); // @phpstan-ignore argument.type
 
-        return $this->accumulator->append($topic, $partition, $record);
+        $idempotency = null;
+        $sequence = 0;
+        if ($this->config->idempotent) {
+            $idempotency = $this->idempotencyCoordinator->initialize($cancellation);
+            $sequence = $this->idempotencyCoordinator->sequenceFor(new TopicPartition($topic, $partition));
+        }
+
+        return $this->accumulator->append(
+            topic: $topic,
+            partition: $partition,
+            record: $record,
+            idempotency: $idempotency,
+            sequence: $sequence,
+        );
     }
 
-    /**
-     * @param non-empty-string $topic
-     * @param non-negative-int $partition
-     */
-    private function rotatePartitioner(string $topic, int $partition): void
+    private function reserveSequence(OpenBatch $batch): void
     {
-        $partitioner = $this->partitioners[$topic] ?? null;
+        $count = \count($batch);
+        \assert($count > 0);
+
+        $tp = new TopicPartition($batch->topic, $batch->partition);
+        $this->idempotencyCoordinator->reserveSequence($tp, $count);
+    }
+
+    private function rotatePartitioner(OpenBatch $batch): void
+    {
+        $partitioner = $this->partitioners[$batch->topic] ?? null;
         if ($partitioner instanceof Producer\StickyTopicPartitioner) {
-            $metadata = $this->cluster->metadata()->topics[$topic] ?? null;
+            $metadata = $this->cluster->metadata()->topics[$batch->topic] ?? null;
 
             /** @var positive-int $partitions */
             $partitions = $metadata !== null ? \count($metadata->partitions) : 1;
 
             $partitioner->rotate(
-                partition: $partition,
+                partition: $batch->partition,
                 partitions: $partitions, // TODO: refactor metadata
             );
         }

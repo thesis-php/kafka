@@ -6,6 +6,7 @@ namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\Future;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Producer;
 use function Amp\async;
 
@@ -14,14 +15,11 @@ use function Amp\async;
  */
 final class Sender
 {
-    /** @var ?Future<null> */
-    private ?Future $loop = null;
+    /** @var Future<null> */
+    private readonly Future $loop;
 
-    /** @var array<non-empty-string, Future<null>> */
-    private array $writes = [];
-
-    /** @var non-empty-string */
-    private string $writeId = 'a';
+    /** @var TopicPartition\Map<Sender\PartitionWorker> */
+    private TopicPartition\Map $workers;
 
     /**
      * @param \Traversable<array-key, ReadyBatch> $batches
@@ -30,21 +28,21 @@ final class Sender
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
         private readonly \Traversable $batches,
-    ) {}
-
-    public function start(): void
-    {
-        $this->loop ??= $this->doStart();
+    ) {
+        $this->workers = new TopicPartition\Map();
+        $this->loop = $this->run();
     }
 
     public function stop(): void
     {
-        $futures = array_values($this->writes);
-        $this->writes = [];
+        // Wait for the router loop to drain the accumulator and exit —
+        // after this no new batches will be routed to workers
+        $this->loop->await();
 
-        if ($this->loop !== null) {
-            $futures[] = $this->loop;
-            $this->loop = null;
+        // Now stop workers, nothing will enqueue into them anymore.
+        $futures = [];
+        foreach ($this->workers->values() as $worker) {
+            $futures[] = async($worker->stop(...));
         }
 
         Future\awaitAll($futures);
@@ -53,21 +51,19 @@ final class Sender
     /**
      * @return Future<null>
      */
-    private function doStart(): Future
+    private function run(): Future
     {
+        $workers = &$this->workers;
         $cluster = $this->cluster;
         $config = $this->config;
         $batches = $this->batches;
-        $writes = &$this->writes;
-        $writeId = &$this->writeId;
 
         /** @var Future<null> */
         return async(static function () use (
             $cluster,
             $config,
             $batches,
-            &$writes,
-            &$writeId,
+            &$workers,
         ): void {
             $producer = new Sender\BatchProducer(
                 $cluster,
@@ -75,14 +71,14 @@ final class Sender
             );
 
             foreach ($batches as $batch) {
-                $idx = $writeId;
-                $writeId = str_increment($writeId);
-                $writes[$idx] = async($producer->produce(...), $batch)->finally(static function () use (
-                    $idx,
-                    &$writes,
-                ): void {
-                    unset($writes[$idx]);
-                });
+                $tp = new TopicPartition($batch->topic, $batch->partition);
+
+                $worker = ($workers[$tp] ??= new Sender\PartitionWorker(
+                    $producer,
+                    $config->maxInflightProduceRequest,
+                ));
+
+                $worker->enqueue($batch);
             }
         });
     }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Producer\Internal\Sender;
 
+use Amp\Cancellation;
+use Amp\NullCancellation;
 use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Exception;
@@ -27,16 +29,23 @@ final readonly class BatchProducer
         private Producer\Config $config,
     ) {}
 
-    public function produce(ReadyBatch $batch): void
-    {
+    public function produce(
+        ReadyBatch $batch,
+        Cancellation $cancellation = new NullCancellation(),
+    ): void {
         $attempt = 0;
 
         while ($attempt++ < $this->config->produceAttempts) {
             try {
-                $leaderId = $this->partitionLeader($batch->topic, $batch->partition);
-                $request = $this->createRequest($batch);
+                $leaderId = $this->partitionLeader(
+                    $batch->topic,
+                    $batch->partition,
+                    $cancellation,
+                );
+
                 $response = $this->cluster->request(
-                    $request,
+                    request: $this->createRequest($batch),
+                    cancellation: $cancellation,
                     reply: $this->config->acks === Producer\Acks::None ? Connection\Reply::None : Connection\Reply::Expected,
                     brokerId: $leaderId,
                 );
@@ -70,7 +79,7 @@ final readonly class BatchProducer
                     return;
                 }
 
-                $this->cluster->refreshMetadata([$batch->topic]);
+                $this->cluster->refreshMetadata([$batch->topic], $cancellation);
             } catch (\Throwable $e) {
                 if ($attempt >= $this->config->produceAttempts) {
                     $batch->fail($e);
@@ -89,9 +98,10 @@ final readonly class BatchProducer
     private function partitionLeader(
         string $topic,
         int $partition,
+        Cancellation $cancellation = new NullCancellation(),
     ): int {
         $topicMetadata = $this->cluster->metadata()->topics[$topic]
-            ?? $this->cluster->refreshMetadata([$topic])->topics[$topic]
+            ?? $this->cluster->refreshMetadata([$topic], $cancellation)->topics[$topic]
             ?? throw new UnknownTopic($topic);
 
         $partitionMetadata = $topicMetadata->partitions[$partition]
