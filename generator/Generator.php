@@ -75,7 +75,7 @@ final readonly class Generator
             );
 
             // Only client wire protocol: requests, responses and header.
-            if (!\in_array($message->type, [Schema\Type::Request, Schema\Type::Response, Schema\Type::Header], true)) {
+            if (!\in_array($message->type, [Schema\Type::Request, Schema\Type::Response, Schema\Type::Header, Schema\Type::Data], true)) {
                 continue;
             }
 
