@@ -21,3 +21,12 @@ parameters:
     reportAnyTypeWideningInVarTag: true
     reportPossiblyNonexistentConstantArrayOffset: true
     reportPossiblyNonexistentGeneralArrayOffset: true
+    ignoreErrors:
+        -
+            message: '#Parameter \#2 \$version of static method Thesis\\Kafka\\Protocol\\Generated\\LeaderChangeMessage\\Voter::decode\(\) expects int<0, max>, int given\.#'
+            path: src/Protocol/Generated/LeaderChangeMessage.php
+            count: 2
+        -
+            message: '#Parameter \#2 \$version of static method Thesis\\Kafka\\Protocol\\Generated\\VotersRecord\\Voter::decode\(\) expects int<0, max>, int given\.#'
+            path: src/Protocol/Generated/VotersRecord.php
+            count: 1
