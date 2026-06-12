@@ -10,6 +10,7 @@ use Amp\DeferredFuture;
 use Amp\Future;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Protocol\ErrorCode;
@@ -40,6 +41,7 @@ final class IdempotencyCoordinator
 
     public function __construct(
         private readonly Cluster $cluster,
+        private readonly ContextLogger $logger,
     ) {
         $this->sequences = new TopicPartition\Map();
     }
@@ -68,11 +70,19 @@ final class IdempotencyCoordinator
         try {
             $idempotency = $this->requestProducerId($cancellation);
             $this->idempotency = $idempotency;
+            $this->logger->info('producer id obtained', [
+                'producerId' => $idempotency->producerId,
+                'producerEpoch' => $idempotency->producerEpoch,
+            ]);
 
             $deferred->complete($idempotency);
 
             return $idempotency;
         } catch (\Throwable $e) {
+            $this->logger->critical('failed to obtain producer id', [
+                'exception' => $e,
+            ]);
+
             $deferred->error($e);
 
             throw $e;
@@ -119,6 +129,10 @@ final class IdempotencyCoordinator
             cancellation: $cancellation,
             retry: new Retry(
                 static fn(Generated\InitProducerIdResponse $response): ErrorCode => ErrorCode::from($response->errorCode),
+                logger: $this->logger->with([
+                    'component' => 'retry',
+                    'operation' => 'initProducerId',
+                ]),
             ),
         );
 

@@ -11,6 +11,7 @@ use Amp\NullCancellation;
 use Amp\Pipeline;
 use Revolt\EventLoop;
 use Thesis\Kafka\Exception;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\MetadataProvider;
 use Thesis\Kafka\Internal\Protocol\Record;
 use Thesis\Kafka\Internal\TopicPartition;
@@ -48,6 +49,7 @@ final class TopicProducer
         private readonly IdempotencyCoordinator $idempotency,
         private readonly Pipeline\Queue $send,
         private readonly Producer\Config $config,
+        private readonly ContextLogger $logger,
     ) {}
 
     /**
@@ -80,7 +82,7 @@ final class TopicProducer
                 throw new Exception\BatchFull();
             }
 
-            $this->release($open);
+            $this->release($open, ContextLogger\ReleaseReasonContextKey::Size);
             $open = null;
         }
 
@@ -95,7 +97,7 @@ final class TopicProducer
         $open->futures[] = $deferred;
 
         if (!$this->config->manualFlush && $open->batch->estimatedSize() >= $this->config->batchSize) {
-            $this->release($open);
+            $this->release($open, ContextLogger\ReleaseReasonContextKey::Size);
         }
 
         return $deferred->getFuture();
@@ -107,7 +109,7 @@ final class TopicProducer
         $futures = [];
 
         foreach ($this->open as $batch) {
-            $this->release($batch);
+            $this->release($batch, ContextLogger\ReleaseReasonContextKey::Manual);
 
             $futures = [
                 ...$futures,
@@ -166,6 +168,12 @@ final class TopicProducer
 
         $this->open[$partition] = $open;
 
+        $this->logger->debug('open batch', [
+            'partition' => $partition,
+            'batchId' => $batchId,
+            'baseSequence' => $sequence,
+        ]);
+
         if (!$this->config->manualFlush && $this->config->linger->isPositive()) {
             /** @var \WeakReference<OpenBatch> $reference */
             $reference = \WeakReference::create($open);
@@ -175,7 +183,7 @@ final class TopicProducer
                 function () use ($reference): void {
                     $open = $reference->get();
                     if ($open !== null) {
-                        $this->release($open);
+                        $this->release($open, ContextLogger\ReleaseReasonContextKey::Linger);
                     }
                 },
             );
@@ -184,7 +192,7 @@ final class TopicProducer
         return $open;
     }
 
-    private function release(OpenBatch $open): void
+    private function release(OpenBatch $open, ContextLogger\ReleaseReasonContextKey $reason): void
     {
         unset($this->open[$open->partition]);
 
@@ -203,6 +211,15 @@ final class TopicProducer
             // fires but no records actually accumulated.
             return;
         }
+
+        $this->logger->debug('release batch', [
+            'partition' => $open->partition,
+            'batchId' => $open->id,
+            'recordCount' => \count($open),
+            'estimatedSize' => $open->batch->estimatedSize(),
+            'reason' => $reason->name,
+            'baseSequence' => $open->batch->baseSequence,
+        ]);
 
         // Rotate the sticky partitioner and advance the idempotent sequence
         // BEFORE pushing to the send queue. push() can suspend when the

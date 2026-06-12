@@ -33,6 +33,7 @@ final readonly class ConnectionFactory
 
     public function __construct(
         private Config $config,
+        private ContextLogger $logger,
         ?Socket\SocketConnector $connector = null,
     ) {
         $this->context = self::configureConnectContext($config);
@@ -60,6 +61,11 @@ final readonly class ConnectionFactory
             $socket,
             $this->config,
             $endpoint,
+            $this->logger->with([
+                'component' => 'connection',
+                'host' => $endpoint->host,
+                'port' => $endpoint->port,
+            ]),
         );
 
         $connection->versionsHandshake($cancellation);
@@ -67,6 +73,12 @@ final readonly class ConnectionFactory
         try {
             $connection->authenticate($cancellation);
         } catch (\Throwable $e) {
+            $this->logger->error('authentication failed', [
+                'host' => $endpoint->host,
+                'port' => $endpoint->port,
+                'exception' => $e,
+            ]);
+
             $connection->close();
 
             if ($e instanceof ProtocolError) {
@@ -78,6 +90,11 @@ final readonly class ConnectionFactory
 
             throw $e;
         }
+
+        $this->logger->info('connection established', [
+            'host' => $endpoint->host,
+            'port' => $endpoint->port,
+        ]);
 
         return $connection;
     }

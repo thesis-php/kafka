@@ -14,6 +14,7 @@ use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\ConnectionClosed;
 use Thesis\Kafka\Internal\Connection;
 use Thesis\Kafka\Internal\ConnectionFactory;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\Time;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
 use function Amp\delay;
@@ -24,15 +25,18 @@ final readonly class PlainSaslReauthenticationTest extends TestCase
     #[Test]
     public function reauthenticatesBeforeOrdinaryRequestWhenSessionExpired(): void
     {
-        $factory = new ConnectionFactory(new Config(
-            seeds: ['kafka-plain-reauth-standalone:9092'],
-            sasl: new SASLConfig([
-                new PlainAuthenticator(
-                    username: 'broker',
-                    password: 'broker-secret',
-                ),
-            ]),
-        ));
+        $factory = new ConnectionFactory(
+            new Config(
+                seeds: ['kafka-plain-reauth-standalone:9092'],
+                sasl: new SASLConfig([
+                    new PlainAuthenticator(
+                        username: 'broker',
+                        password: 'broker-secret',
+                    ),
+                ]),
+            ),
+            ContextLogger::null(),
+        );
 
         $connection = $factory->open(
             Endpoint::parse('kafka-plain-reauth-standalone:9092'),
@@ -67,15 +71,18 @@ final readonly class PlainSaslReauthenticationTest extends TestCase
     #[Test]
     public function closesConnectionIfExpiredSessionBypassesRefresh(): void
     {
-        $factory = new ConnectionFactory(new Config(
-            seeds: ['kafka-plain-reauth-standalone:9092'],
-            sasl: new SASLConfig([
-                new PlainAuthenticator(
-                    username: 'broker',
-                    password: 'broker-secret',
-                ),
-            ]),
-        ));
+        $factory = new ConnectionFactory(
+            new Config(
+                seeds: ['kafka-plain-reauth-standalone:9092'],
+                sasl: new SASLConfig([
+                    new PlainAuthenticator(
+                        username: 'broker',
+                        password: 'broker-secret',
+                    ),
+                ]),
+            ),
+            ContextLogger::null(),
+        );
 
         $connection = $factory->open(
             Endpoint::parse('kafka-plain-reauth-standalone:9092'),

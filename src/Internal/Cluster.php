@@ -49,15 +49,28 @@ final class Cluster implements MetadataProvider
 
     private ?string $metadataCallbackId = null;
 
-    public function __construct(private readonly Config $config)
-    {
-        $this->factory = $factory = new ConnectionFactory($config);
+    public function __construct(
+        private readonly Config $config,
+        private readonly ContextLogger $logger,
+    ) {
+        $this->factory = $factory = new ConnectionFactory(
+            $config,
+            $this->logger->with([
+                'component' => 'connection.factory',
+            ]),
+        );
 
         $this->seeds = array_map(
-            static fn(int $index, Config\Endpoint $endpoint) => new Cluster\Broker(
+            fn(int $index, Config\Endpoint $endpoint) => new Cluster\Broker(
                 Cluster\NodeId::unknown($index),
                 $endpoint,
                 $factory,
+                $this->logger->with([
+                    'component' => 'broker',
+                    'nodeId' => Cluster\NodeId::unknown($index)->id,
+                    'host' => $endpoint->host,
+                    'port' => $endpoint->port,
+                ]),
             ),
             array_keys($this->config->seeds),
             $this->config->seeds,
@@ -205,8 +218,18 @@ final class Cluster implements MetadataProvider
         }
 
         if ($request->apiKey()->requiresAnyListener(Generated\Listener::Controller)) {
+            $this->logger->debug('routing request', [
+                'apiKey' => $request->apiKey()->name,
+                'type' => 'controller',
+            ]);
+
             return $this->doControllerRequest($request, $cancellation);
         }
+
+        $this->logger->debug('routing request', [
+            'apiKey' => $request->apiKey()->name,
+            'type' => 'broker',
+        ]);
 
         return $this->doBrokerRequest($request, $cancellation, $reply);
     }
@@ -219,8 +242,18 @@ final class Cluster implements MetadataProvider
         Generated\MetadataRequest $request,
         Cancellation $cancellation,
     ): Generated\MetadataResponse {
-        /** @var Generated\MetadataResponse $response */
-        $response = $this->doBrokerRequest($request, $cancellation);
+        $this->logger->notice('refreshing metadata');
+
+        try {
+            /** @var Generated\MetadataResponse $response */
+            $response = $this->doBrokerRequest($request, $cancellation);
+        } catch (\Throwable $e) {
+            $this->logger->error('metadata refresh failed', [
+                'exception' => $e,
+            ]);
+
+            throw $e;
+        }
 
         // Most MetadataResponse error codes are per-topic or
         // per-partition and don't invalidate the response as a
@@ -234,6 +267,12 @@ final class Cluster implements MetadataProvider
 
         $this->discover($response);
         $this->createMetadataSnapshot($response);
+
+        $this->logger->notice('metadata refreshed', [
+            'controllerId' => $response->controllerId,
+            'topics' => \count($response->topics),
+            'brokers' => \count($response->brokers),
+        ]);
 
         return $response;
     }
@@ -267,6 +306,11 @@ final class Cluster implements MetadataProvider
             }
 
             if ($this->controllerId === -1) {
+                $this->logger->warning('controller unavailable, retrying', [
+                    'attempt' => $attempt + 1,
+                    'error' => ErrorCode::NotController->name,
+                ]);
+
                 // Refresh completed but cluster has no controller right now (mid-election).
                 throw new NoAvailableController('No controller elected: maybe cluster is in mid-election?');
             }
@@ -284,6 +328,11 @@ final class Cluster implements MetadataProvider
             // our last metadata refresh and now. Force a refresh and
             // retry again.
             if (Errors::for($response)->has(ErrorCode::NotController)) {
+                $this->logger->warning('controller unavailable, retrying', [
+                    'attempt' => $attempt + 1,
+                    'error' => ErrorCode::NotController->name,
+                ]);
+
                 $this->controllerId = -1;
                 continue;
             }
@@ -395,6 +444,12 @@ final class Cluster implements MetadataProvider
                 nodeId: new Cluster\NodeId($id),
                 endpoint: $endpoint,
                 factory: $this->factory,
+                logger: $this->logger->with([
+                    'component' => 'broker',
+                    'nodeId' => $id,
+                    'host' => $endpoint->host,
+                    'port' => $endpoint->port,
+                ]),
             );
         }
 
@@ -422,12 +477,25 @@ final class Cluster implements MetadataProvider
             \assert(\is_string($topicName) && $topicName !== '');
 
             if ($topic->errorCode !== 0) {
+                $error = ErrorCode::from($topic->errorCode);
+                $this->logger->warning('topic metadata error', [
+                    'topic' => $topicName,
+                    'errorCode' => $topic->errorCode,
+                    'error' => $error->name,
+                ]);
                 // Topic-level error (UNKNOWN_TOPIC_OR_PARTITION, TOPIC_AUTHORIZATION_FAILED): drop from cache.
                 $topics[$topicName] = null;
             } else {
                 $partitions = [];
 
                 foreach ($topic->partitions as $partition) {
+                    if ($partition->leaderId < 0) {
+                        $this->logger->warning('partition has no leader', [
+                            'topic' => $topicName,
+                            'partition' => $partition->partitionIndex,
+                        ]);
+                    }
+
                     $partitions[$partition->partitionIndex] = new Cluster\Metadata\PartitionMetadata(
                         partition: $partition->partitionIndex,
                         leader: $partition->leaderId,

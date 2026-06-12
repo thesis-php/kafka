@@ -7,6 +7,7 @@ namespace Thesis\Kafka\Producer\Internal;
 use Amp\Future;
 use Amp\Pipeline;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Producer;
 use function Amp\async;
@@ -32,6 +33,7 @@ final class Sender
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
         Pipeline\Queue $send,
+        private readonly ContextLogger $logger,
     ) {
         $this->batches = $send->iterate();
         $this->workers = new TopicPartition\Map();
@@ -70,6 +72,7 @@ final class Sender
         $cluster = $this->cluster;
         $config = $this->config;
         $batches = $this->batches;
+        $logger = $this->logger;
 
         /** @var Future<null> */
         return async(static function () use (
@@ -77,10 +80,14 @@ final class Sender
             $config,
             $batches,
             &$workers,
+            $logger,
         ): void {
             $producer = new Sender\BatchProducer(
                 $cluster,
                 $config,
+                $logger->with([
+                    'component' => 'producer.batchProducer',
+                ]),
             );
 
             foreach ($batches as $batch) {

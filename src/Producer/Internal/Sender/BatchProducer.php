@@ -14,6 +14,7 @@ use Thesis\Kafka\Exception\UnknownPartition;
 use Thesis\Kafka\Exception\UnknownTopic;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\Connection;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Producer;
 use Thesis\Kafka\Producer\Internal\ReadyBatch;
 use Thesis\Kafka\Protocol\ErrorCode;
@@ -27,6 +28,7 @@ final readonly class BatchProducer
     public function __construct(
         private Cluster $cluster,
         private Producer\Config $config,
+        private ContextLogger $logger,
     ) {}
 
     public function produce(
@@ -42,6 +44,14 @@ final readonly class BatchProducer
                     $batch->partition,
                     $cancellation,
                 );
+
+                $this->logger->debug('producing batch', [
+                    'topic' => $batch->topic,
+                    'partition' => $batch->partition,
+                    'recordCount' => \count($batch->futures),
+                    'baseSequence' => $batch->batch->baseSequence,
+                    'attempt' => $attempt,
+                ]);
 
                 $response = $this->cluster->request(
                     request: $this->createRequest($batch),
@@ -68,10 +78,23 @@ final readonly class BatchProducer
                         timestamp: $partition->logAppendTimeMs ?? null, // @phpstan-ignore argument.type
                     );
 
+                    $this->logger->debug('batch acknowledged', [
+                        'topic' => $batch->topic,
+                        'partition' => $batch->partition,
+                        'baseOffset' => $partition->baseOffset,
+                    ]);
+
                     return;
                 }
 
                 if (!$error->retriable() || $attempt >= $this->config->produceAttempts) {
+                    $this->logger->error('produce failed permanently', [
+                        'topic' => $batch->topic,
+                        'partition' => $batch->partition,
+                        'error' => $error->name,
+                        'attempt' => $attempt,
+                    ]);
+
                     $batch->fail(new \RuntimeException(
                         "Produce failed for {$batch->topic}-{$batch->partition}: {$error->name}.",
                     ));
@@ -79,12 +102,35 @@ final readonly class BatchProducer
                     return;
                 }
 
+                $this->logger->warning('produce failed, retrying', [
+                    'topic' => $batch->topic,
+                    'partition' => $batch->partition,
+                    'error' => $error->name,
+                    'attempt' => $attempt,
+                    'maxAttempts' => $this->config->produceAttempts,
+                ]);
+
                 $this->cluster->refreshMetadata([$batch->topic], $cancellation);
             } catch (\Throwable $e) {
                 if ($attempt >= $this->config->produceAttempts) {
+                    $this->logger->error('produce failed permanently', [
+                        'topic' => $batch->topic,
+                        'partition' => $batch->partition,
+                        'attempt' => $attempt,
+                        'exception' => $e,
+                    ]);
+
                     $batch->fail($e);
                     return;
                 }
+
+                $this->logger->warning('produce failed, retrying', [
+                    'topic' => $batch->topic,
+                    'partition' => $batch->partition,
+                    'attempt' => $attempt,
+                    'maxAttempts' => $this->config->produceAttempts,
+                    'exception' => $e,
+                ]);
             }
         }
     }

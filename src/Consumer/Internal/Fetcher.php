@@ -15,6 +15,7 @@ use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
@@ -41,12 +42,15 @@ final class Fetcher
         private readonly Consumer\Internal\Protocol\RecordBatch $batch,
         private readonly Consumer\Config $config,
         private readonly Pipeline\Queue $queue,
+        private readonly ContextLogger $logger,
     ) {}
 
     public function start(): void
     {
         $this->cancel ??= new DeferredCancellation();
         $this->loop ??= async($this->run(...), $this->cancel->getCancellation());
+
+        $this->logger->debug('fetch loop started');
     }
 
     public function stop(Cancellation $cancellation = new NullCancellation()): void
@@ -66,6 +70,8 @@ final class Fetcher
         } finally {
             $this->cancel = null;
             $this->loop = null;
+
+            $this->logger->debug('fetch loop stopped');
         }
     }
 
@@ -82,7 +88,11 @@ final class Fetcher
                 $response = $this->fetch($partitions, $cancellation);
             } catch (CancelledException $e) {
                 throw $e;
-            } catch (\Throwable) {
+            } catch (\Throwable $exception) {
+                $this->logger->warning('fetch loop error, refreshing metadata', [
+                    'exception' => $exception,
+                ]);
+
                 // Transport-level failure or a leader that moved.
                 // Refresh so the consumer can re-resolve leaders, then
                 // retry the loop.
@@ -105,11 +115,31 @@ final class Fetcher
     ): Generated\FetchResponse {
         $request = $this->createFetchRequest($partitions, $cancellation);
 
-        return $this->cluster->request(
+        $this->logger->debug('fetching', [
+            'maxBytes' => $request->maxBytes,
+            'maxWaitMs' => $request->maxWaitMs,
+        ]);
+
+        $response = $this->cluster->request(
             $request,
             $cancellation,
             brokerId: $this->leaderId,
         );
+
+        $batchCount = 0;
+        foreach ($response->responses as $topicResponse) {
+            foreach ($topicResponse->partitions as $partitionResponse) {
+                if ($partitionResponse->records !== null && $partitionResponse->records !== '') {
+                    ++$batchCount;
+                }
+            }
+        }
+
+        $this->logger->debug('fetch returned', [
+            'batches' => $batchCount,
+        ]);
+
+        return $response;
     }
 
     /**
@@ -189,12 +219,22 @@ final class Fetcher
                 // Broker returned a topicId we don't have in metadata — could
                 // be a topic that vanished between our metadata refresh and
                 // this fetch.
+                $this->logger->warning('received records for unknown topic id, skipping', [
+                    'topicId' => $topicResponse->topicId->toString(),
+                ]);
+
                 continue;
             }
 
             foreach ($topicResponse->partitions as $partitionResponse) {
                 $error = ErrorCode::from($partitionResponse->errorCode);
                 if ($error !== ErrorCode::None) {
+                    $this->logger->warning('fetch error for partition', [
+                        'topic' => $topic,
+                        'partition' => $partitionResponse->partitionIndex,
+                        'error' => $error->name,
+                    ]);
+
                     continue;
                 }
 
@@ -252,8 +292,20 @@ final class Fetcher
             // Backpressure: if the buffer is full this blocks until the
             // consumer drains it (or stop() cancels us).
             $this->queue->pushAsync($records->records)->await($cancellation);
+            $this->logger->debug('dispatched partition records', [
+                'topic' => $tp->topic,
+                'partition' => $tp->partition,
+                'records' => \count($records->records),
+                'nextOffset' => $records->nextOffset,
+            ]);
         }
 
         $this->subscription->advance($tp, $offset);
+
+        $this->logger->debug('advance position', [
+            'topic' => $tp->topic,
+            'partition' => $tp->partition,
+            'offset' => $offset,
+        ]);
     }
 }

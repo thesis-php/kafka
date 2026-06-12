@@ -23,6 +23,7 @@ final readonly class Retry
      */
     public function __construct(
         public \Closure $errorOf,
+        public ContextLogger $logger,
         public int $maxAttempts = 5,
     ) {}
 
@@ -37,12 +38,14 @@ final readonly class Retry
     ): callable {
         $errorOf = $this->errorOf;
         $maxAttempts = $this->maxAttempts;
+        $logger = $this->logger;
 
         return static function () use (
             $errorOf,
             $maxAttempts,
             $operation,
             $cancellation,
+            $logger,
         ): mixed {
             for ($attempt = 1;; ++$attempt) {
                 try {
@@ -53,10 +56,28 @@ final readonly class Retry
                     }
 
                     if (!$error->retriable() || $attempt >= $maxAttempts) {
+                        $logger->error('operation failed after retries', [
+                            'attempt' => $attempt,
+                            'maxAttempts' => $maxAttempts,
+                            'error' => $error->name,
+                        ]);
+
                         return $response;
                     }
+
+                    $logger->warning('operation failed, retrying', [
+                        'attempt' => $attempt,
+                        'maxAttempts' => $maxAttempts,
+                        'error' => $error->name,
+                    ]);
                 } catch (Exception $e) {
                     if (!isNetwork($e) || $attempt >= $maxAttempts) {
+                        $logger->error('operation failed after retries', [
+                            'attempt' => $attempt,
+                            'maxAttempts' => $maxAttempts,
+                            'exception' => $e,
+                        ]);
+
                         throw $e;
                     }
                 }

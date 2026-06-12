@@ -71,6 +71,7 @@ final class Connection
         private readonly Socket $socket,
         private readonly Config $config,
         public readonly Endpoint $endpoint,
+        private readonly ContextLogger $logger,
         private readonly NegotiatedVersions $versions = new NegotiatedVersions(),
         int $sendBufferSize = self::SEND_BUFFER_SIZE,
     ) {
@@ -147,6 +148,14 @@ final class Connection
             responseVersion: $responseVersion,
         );
 
+        $context = [
+            'correlationId' => $id,
+            'apiKey' => $call->request->apiKey()->name,
+            'apiVersion' => $requestVersion,
+        ];
+
+        $this->logger->debug('sending request', $context);
+
         if ($reply === Connection\Reply::Expected) {
             $this->pending[$id] = $request;
         }
@@ -154,7 +163,20 @@ final class Connection
         $this->send->push($request);
 
         try {
-            return $deferred->getFuture()->await($cancellation);
+            $response = $deferred->getFuture()->await($cancellation);
+
+            if ($reply === Connection\Reply::Expected) {
+                $this->logger->debug('received response', $context);
+            }
+
+            return $response;
+        } catch (\Throwable $e) {
+            $this->logger->error('receive response error', [
+                ...$context,
+                'exception' => $e,
+            ]);
+
+            throw $e;
         } finally {
             // Cancellation only removes the request from the pending map. If the
             // request was already written to the socket (very likely once we're
@@ -208,6 +230,9 @@ final class Connection
             $error = ErrorCode::from($response->errorCode);
             if ($error === ErrorCode::None) {
                 $this->versions->seed(...$response->apiKeys);
+                $this->logger->info('api versions negotiated', [
+                    'supportedApi' => \count($response->apiKeys),
+                ]);
 
                 return;
             }
@@ -253,6 +278,9 @@ final class Connection
             $error = ErrorCode::from($response->errorCode);
             if ($error === ErrorCode::None) {
                 $this->doSaslAuthenticate($authenticator, $cancellation);
+                $this->logger->info('authenticated', [
+                    'mechanism' => $authenticator->mechanism(),
+                ]);
 
                 return;
             }

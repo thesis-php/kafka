@@ -25,6 +25,7 @@
         "amphp/pipeline": "^1.2",
         "amphp/socket": "^2.4",
         "amphp/sync": "^2.3",
+        "psr/log": "^1 || ^2 || ^3",
         "ramsey/uuid": "^4.9",
         "revolt/event-loop": "^1.0",
         "thesis/endian": "^0.3.3",
@@ -34,8 +35,10 @@
         "thesis/varint": "^0.2.0"
     },
     "require-dev": {
+        "amphp/log": "^2.0",
         "colinodell/json5": "^3.0",
         "cuyz/valinor": "^2.4",
+        "monolog/monolog": "^3.10",
         "nette/php-generator": "^4.2.1",
         "nikic/php-parser": "^5.7",
         "symfony/var-dumper": "^8.0",

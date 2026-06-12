@@ -6,6 +6,8 @@ namespace Thesis\Kafka;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Thesis\Kafka\Protocol\Generated;
 
 /**
@@ -15,10 +17,20 @@ final readonly class Client
 {
     private Internal\Cluster $admin;
 
+    private Internal\ContextLogger $logger;
+
     public function __construct(
         public Config $config,
+        LoggerInterface $logger = new NullLogger(),
     ) {
-        $this->admin = new Internal\Cluster($config);
+        $logger = new Internal\ContextLogger($logger, [
+            'component' => 'cluster',
+            'clientName' => $config->clientSoftwareName,
+            'clientVersion' => $config->clientSoftwareVersion,
+        ]);
+
+        $this->logger = $logger;
+        $this->admin = new Internal\Cluster($config, $logger);
     }
 
     /**
@@ -36,8 +48,17 @@ final readonly class Client
     public function createProducer(Producer\Config $config = new Producer\Config()): Producer
     {
         return new Producer\Internal\AsyncProducer(
-            new Internal\Cluster($this->config),
-            $config,
+            cluster: new Internal\Cluster($this->config, $this->logger),
+            config: $config,
+            logger: $this->logger->with([
+                'component' => 'producer',
+                'idempotent' => $config->idempotent,
+                'compressor' => $config->compressor->codec()->name,
+                'inflight' => $config->maxInflightProduceRequest,
+                'batchSize' => $config->batchSize,
+                'linger' => $config->linger->toSeconds(3),
+                'acks' => $config->acks->name,
+            ]),
         );
     }
 
@@ -53,10 +74,17 @@ final readonly class Client
         }
 
         return new Consumer\Internal\AsyncConsumer(
-            cluster: new Internal\Cluster($this->config),
+            cluster: new Internal\Cluster($this->config, $this->logger),
             config: $config,
             requestTimeout: $this->config->requestTimeout,
             topics: $topics,
+            logger: $this->logger->with([
+                'component' => 'consumer',
+                'topic' => implode(', ', $topics),
+                'autoOffsetReset' => $config->autoOffsetReset->name,
+                'isolationLevel' => $config->isolationLevel->name,
+                'groupId' => $config->group?->groupId,
+            ]),
         );
     }
 

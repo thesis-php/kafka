@@ -15,6 +15,7 @@ use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
@@ -51,6 +52,7 @@ final class AsyncConsumer implements Consumer
         private readonly Consumer\Config $config,
         private readonly TimeSpan $requestTimeout,
         array $topics,
+        private readonly ContextLogger $logger,
     ) {
         $this->queue = new Pipeline\Queue($config->prefetchBufferSize);
         $this->iterator = $this->queue->iterate();
@@ -104,6 +106,8 @@ final class AsyncConsumer implements Consumer
         if ($this->consumer !== AsyncConsumer\ConsumerState::Running) {
             return;
         }
+
+        $this->logger->info('consumer closing');
 
         $this->consumer = AsyncConsumer\ConsumerState::Closed;
         $this->queue->complete();
@@ -164,6 +168,8 @@ final class AsyncConsumer implements Consumer
         // autoOffsetReset policy (ListOffsets under the hood).
         $offsets = $this->resolveOffsets($metadata, $cancellation);
 
+        $this->logger->info('resolved start offsets');
+
         foreach ($this->subscription->topics as $topic) {
             $topicMetadata = $metadata->topics[$topic]
                 ?? throw new Exception\UnknownTopic($topic);
@@ -199,11 +205,19 @@ final class AsyncConsumer implements Consumer
                 batch: $this->batch,
                 config: $this->config,
                 queue: $this->queue,
+                logger: $this->logger->with([
+                    'component' => 'consumer.fetcher',
+                    'nodeId' => $leaderId,
+                ]),
             );
 
             $this->fetchers[$leaderId] = $fetcher;
             $fetcher->start();
         }
+
+        $this->logger->info('consumer started', [
+            'topics' => $this->subscription->topics,
+        ]);
     }
 
     /**

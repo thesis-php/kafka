@@ -10,6 +10,7 @@ use Amp\NullCancellation;
 use Amp\Pipeline;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Producer;
 use function Amp\async;
 
@@ -55,13 +56,22 @@ final class AsyncProducer implements Producer
     public function __construct(
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
+        private readonly ContextLogger $logger,
     ) {
         $this->send = new Pipeline\Queue();
-        $this->idempotencyCoordinator = new IdempotencyCoordinator($cluster);
+        $this->idempotencyCoordinator = new IdempotencyCoordinator(
+            $cluster,
+            $this->logger->with([
+                'component' => 'producer.idempotency',
+            ]),
+        );
         $this->sender = new Sender(
             cluster: $cluster,
             config: $config,
             send: $this->send,
+            logger: $this->logger->with([
+                'component' => 'producer.sender',
+            ]),
         );
     }
 
@@ -109,6 +119,10 @@ final class AsyncProducer implements Producer
     #[\Override]
     public function close(): void
     {
+        $this->logger->info('close producer', [
+            'producers' => \count($this->producers),
+        ]);
+
         // Shut down in dependency order: writers first, then the queue they
         // write into, then the reader of that queue.
 
@@ -146,9 +160,18 @@ final class AsyncProducer implements Producer
             ?? $this->config->defaultTopic
             ?? throw new \LogicException('No producer record topic and no default');
 
-        $idempotency = $this->config->idempotent
-            ? $this->idempotencyCoordinator->initialize($cancellation)
-            : null;
+        $idempotency = null;
+        $logger = $this->logger->with([
+            'topic' => $topic,
+        ]);
+
+        if ($this->config->idempotent) {
+            $idempotency = $this->idempotencyCoordinator->initialize($cancellation);
+            $logger = $logger->with([
+                'producerId' => $idempotency->producerId,
+                'producerEpoch' => $idempotency->producerEpoch,
+            ]);
+        }
 
         $producer = $this->producers[$topic] ??= new TopicProducer(
             topic: $topic,
@@ -157,6 +180,7 @@ final class AsyncProducer implements Producer
             idempotency: $this->idempotencyCoordinator,
             send: $this->send,
             config: $this->config,
+            logger: $logger,
         );
 
         return $producer->queue($record, $idempotency);

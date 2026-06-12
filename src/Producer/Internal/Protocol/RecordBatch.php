@@ -71,14 +71,14 @@ final class RecordBatch implements \Countable
     private int $estimatedSize = Record::HEADER_SIZE;
 
     public function __construct(
-        private readonly Compressor $compressor,
-        private readonly Record\Attributes $attributes,
-        private readonly Crc32 $crc32c = new Crc32\Native(),
-        private readonly int $producerId = -1,
-        private readonly int $producerEpoch = -1,
-        private readonly int $baseSequence = 0,
-        private readonly int $partitionLeaderEpoch = -1,
-        private readonly int $firstOffset = 0,
+        public readonly Compressor $compressor,
+        public readonly Record\Attributes $attributes,
+        public readonly Crc32 $crc32c = new Crc32\Native(),
+        public readonly int $producerId = -1,
+        public readonly int $producerEpoch = -1,
+        public readonly int $baseSequence = 0,
+        public readonly int $partitionLeaderEpoch = -1,
+        public readonly int $firstOffset = 0,
     ) {
         $codec = $this->attributes->compression;
 

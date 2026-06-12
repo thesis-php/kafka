@@ -30,6 +30,7 @@ final class Broker
         public readonly NodeId $nodeId,
         public readonly Endpoint $endpoint,
         private readonly Internal\ConnectionFactory $factory,
+        private readonly Internal\ContextLogger $logger,
     ) {
         $this->alive = new \SplObjectStorage();
         $this->opening = new \SplObjectStorage();
@@ -89,6 +90,7 @@ final class Broker
         $opening = $this->opening;
         $factory = $this->factory;
         $endpoint = $this->endpoint;
+        $logger = $this->logger;
 
         /** @var Future<Connection> */
         return async(static function () use (
@@ -98,8 +100,11 @@ final class Broker
             $kind,
             $endpoint,
             $cancellation,
+            $logger,
         ): Connection {
             try {
+                $logger->debug('connecting to broker');
+
                 $connection = $factory->open(
                     $endpoint,
                     $cancellation,

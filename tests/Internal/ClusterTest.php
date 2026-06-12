@@ -110,10 +110,13 @@ final readonly class ClusterTest extends TestCase
      */
     private function createCluster(array $preloadTopics = []): Cluster
     {
-        return new Cluster(new Config(
-            seeds: self::SEEDS,
-            preloadTopics: $preloadTopics,
-        ));
+        return new Cluster(
+            new Config(
+                seeds: self::SEEDS,
+                preloadTopics: $preloadTopics,
+            ),
+            ContextLogger::null(),
+        );
     }
 
     /**
