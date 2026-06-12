@@ -80,7 +80,7 @@ final readonly class Client
             topics: $topics,
             logger: $this->logger->with([
                 'component' => 'consumer',
-                'topic' => implode(', ', $topics),
+                'topics' => implode(', ', $topics),
                 'autoOffsetReset' => $config->autoOffsetReset->name,
                 'isolationLevel' => $config->isolationLevel->name,
                 'groupId' => $config->group?->groupId,
