@@ -8,8 +8,8 @@ use Amp\Future;
 use Amp\Pipeline;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
-use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Producer;
+use Thesis\Kafka\TopicPartition;
 use function Amp\async;
 
 /**

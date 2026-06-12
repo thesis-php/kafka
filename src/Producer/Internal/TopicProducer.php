@@ -14,8 +14,8 @@ use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\MetadataProvider;
 use Thesis\Kafka\Internal\Protocol\Record;
-use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Producer;
+use Thesis\Kafka\TopicPartition;
 
 /**
  * @internal

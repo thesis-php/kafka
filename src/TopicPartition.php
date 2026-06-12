@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal;
+namespace Thesis\Kafka;
 
 /**
  * Identifies a single partition of a topic. A value object used as the
  * unit of assignment, commit, seek, and position tracking.
  *
- * @internal
+ * @api
  */
 final readonly class TopicPartition implements \Stringable
 {

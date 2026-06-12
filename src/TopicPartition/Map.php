@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal\TopicPartition;
+namespace Thesis\Kafka\TopicPartition;
 
-use Thesis\Kafka\Internal\TopicPartition;
+use Thesis\Kafka\TopicPartition;
 
 /**
  * SplObjectStorage that hashes TopicPartition by (topic, partition)
@@ -14,7 +14,7 @@ use Thesis\Kafka\Internal\TopicPartition;
  * @template TValue
  * @template-extends \SplObjectStorage<TopicPartition, TValue>
  *
- * @internal
+ * @api
  */
 final class Map extends \SplObjectStorage
 {
