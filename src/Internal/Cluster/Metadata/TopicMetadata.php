@@ -9,7 +9,7 @@ use Ramsey\Uuid\UuidInterface;
 /**
  * @internal
  */
-final readonly class TopicMetadata implements \Countable
+final readonly class TopicMetadata
 {
     /**
      * @param non-empty-string $name
@@ -22,9 +22,14 @@ final readonly class TopicMetadata implements \Countable
         public array $partitions,
     ) {}
 
-    #[\Override]
-    public function count(): int
+    /**
+     * @return positive-int
+     */
+    public function partitions(): int
     {
-        return \count($this->partitions);
+        $n = \count($this->partitions);
+        \assert($n > 0);
+
+        return $n;
     }
 }

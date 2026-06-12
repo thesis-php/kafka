@@ -7,17 +7,22 @@ namespace Thesis\Kafka\Producer\Internal;
 use Amp\Cancellation;
 use Amp\Future;
 use Amp\NullCancellation;
+use Amp\Pipeline;
 use Thesis\Kafka\Exception;
-use Thesis\Kafka\Exception\UnknownTopic;
 use Thesis\Kafka\Internal\Cluster;
-use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Producer;
-use function Amp\weakClosure;
+use function Amp\async;
 
 /**
- * Sends records to Kafka. One {@see AsyncProducer} owns one {@see Accumulator} (per-
- * (topic, partition) batching) and one {@see Sender} (background coroutine
- * that drains the {@see Accumulator}).
+ * Sends records to Kafka, fanning them out to a {@see TopicProducer} per
+ * topic (each owns the per-partition batching, partitioning, and linger
+ * for its topic) and draining all of them through a single shared
+ * {@see Sender}.
+ *
+ * Topic producers are created lazily on first produce to a topic. The
+ * idempotent identity, when enabled, is obtained once and shared across
+ * all topics — it belongs to the producer as a whole, not to any one
+ * topic.
  *
  * @internal
  */
@@ -25,30 +30,39 @@ final class AsyncProducer implements Producer
 {
     private readonly IdempotencyCoordinator $idempotencyCoordinator;
 
-    private readonly Accumulator $accumulator;
+    /** @var array<non-empty-string, TopicProducer> */
+    private array $producers = [];
+
+    /**
+     * The single queue every {@see TopicProducer} pushes sealed batches
+     * into, and the single {@see Sender} that drains it.
+     *
+     * One queue and one sender across all topics — deliberately not one per
+     * topic. Ordering only needs to hold per (topic, partition), and a
+     * single sender routes each partition to its own worker, so per-topic
+     * isolation would buy nothing. What it would cost is real: a partition
+     * of topic A and a partition of topic B can share a leader, and one
+     * sender can pack their batches into a single multi-topic ProduceRequest
+     * to that broker. It also keeps the in-flight limit global rather than
+     * multiplying it by the number of topics.
+     *
+     * @var Pipeline\Queue<ReadyBatch>
+     */
+    private readonly Pipeline\Queue $send;
 
     private readonly Sender $sender;
-
-    /** @var array<non-empty-string, Producer\TopicPartitioner> */
-    private array $partitioners = [];
 
     public function __construct(
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
     ) {
+        $this->send = new Pipeline\Queue();
         $this->idempotencyCoordinator = new IdempotencyCoordinator($cluster);
-        $this->accumulator = new Accumulator($config);
         $this->sender = new Sender(
             cluster: $cluster,
             config: $config,
-            batches: $this->accumulator,
+            send: $this->send,
         );
-
-        $this->accumulator->onRelease(weakClosure($this->rotatePartitioner(...)));
-
-        if ($config->idempotent) {
-            $this->accumulator->onRelease(weakClosure($this->reserveSequence(...)));
-        }
     }
 
     #[\Override]
@@ -83,13 +97,40 @@ final class AsyncProducer implements Producer
     #[\Override]
     public function flush(): void
     {
-        $this->accumulator->flush();
+        $futures = [];
+
+        foreach ($this->producers as $producer) {
+            $futures[] = async($producer->flush(...));
+        }
+
+        Future\awaitAll($futures);
     }
 
     #[\Override]
     public function close(): void
     {
-        $this->accumulator->close();
+        // Shut down in dependency order: writers first, then the queue they
+        // write into, then the reader of that queue.
+
+        // 1. Close every TopicProducer. Each flushes its open batches into
+        //    the queue and stops accepting writes — pushing after the queue
+        //    is completed would be an error, so all writers must be done
+        //    before we complete it.
+        $futures = [];
+        foreach ($this->producers as $producer) {
+            $futures[] = async($producer->close(...));
+        }
+
+        Future\awaitAll($futures);
+
+        // 2. Complete the queue. With no writers left, this is the signal the
+        //    Sender's router loop watches for — its foreach over the queue
+        //    ends once the buffer drains.
+        $this->send->complete();
+
+        // 3. Stop the Sender. It waits for the router loop to finish draining
+        //    and for every partition worker to flush its in-flight batches,
+        //    so close() returns only once all records have actually been sent.
         $this->sender->stop();
     }
 
@@ -105,52 +146,19 @@ final class AsyncProducer implements Producer
             ?? $this->config->defaultTopic
             ?? throw new \LogicException('No producer record topic and no default');
 
-        $topicMetadata = $this->cluster->metadata()->topics[$topic]
-            ?? $this->cluster->refreshMetadata([$topic], $cancellation)->topics[$topic]
-            ?? throw new UnknownTopic($topic);
+        $idempotency = $this->config->idempotent
+            ? $this->idempotencyCoordinator->initialize($cancellation)
+            : null;
 
-        $partitioner = $this->partitioners[$topic] ??= $this->config->partitioner->forTopic($topic);
-
-        $partition = $record->partition ?? $partitioner->partition($record, \count($topicMetadata)); // @phpstan-ignore argument.type
-
-        $idempotency = null;
-        $sequence = 0;
-        if ($this->config->idempotent) {
-            $idempotency = $this->idempotencyCoordinator->initialize($cancellation);
-            $sequence = $this->idempotencyCoordinator->sequenceFor(new TopicPartition($topic, $partition));
-        }
-
-        return $this->accumulator->append(
+        $producer = $this->producers[$topic] ??= new TopicProducer(
             topic: $topic,
-            partition: $partition,
-            record: $record,
-            idempotency: $idempotency,
-            sequence: $sequence,
+            partitioner: $this->config->partitioner->forTopic($topic),
+            metadata: $this->cluster,
+            idempotency: $this->idempotencyCoordinator,
+            send: $this->send,
+            config: $this->config,
         );
-    }
 
-    private function reserveSequence(OpenBatch $batch): void
-    {
-        $count = \count($batch);
-        \assert($count > 0);
-
-        $tp = new TopicPartition($batch->topic, $batch->partition);
-        $this->idempotencyCoordinator->reserveSequence($tp, $count);
-    }
-
-    private function rotatePartitioner(OpenBatch $batch): void
-    {
-        $partitioner = $this->partitioners[$batch->topic] ?? null;
-        if ($partitioner instanceof Producer\StickyTopicPartitioner) {
-            $metadata = $this->cluster->metadata()->topics[$batch->topic] ?? null;
-
-            /** @var positive-int $partitions */
-            $partitions = $metadata !== null ? \count($metadata->partitions) : 1;
-
-            $partitioner->rotate(
-                partition: $batch->partition,
-                partitions: $partitions, // TODO: refactor metadata
-            );
-        }
+        return $producer->queue($record, $idempotency);
     }
 }

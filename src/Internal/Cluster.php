@@ -18,6 +18,8 @@ use Thesis\Kafka\Exception\AllBrokersFailed;
 use Thesis\Kafka\Exception\NoAvailableController;
 use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\Exception\UnknownBroker;
+use Thesis\Kafka\Exception\UnknownTopic;
+use Thesis\Kafka\Internal\Cluster\Metadata;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
@@ -26,7 +28,7 @@ use function Amp\async;
 /**
  * @internal
  */
-final class Cluster
+final class Cluster implements MetadataProvider
 {
     private readonly ConnectionFactory $factory;
 
@@ -60,6 +62,16 @@ final class Cluster
             array_keys($this->config->seeds),
             $this->config->seeds,
         );
+    }
+
+    #[\Override]
+    public function topic(
+        string $topic,
+        Cancellation $cancellation = new NullCancellation(),
+    ): Metadata\TopicMetadata {
+        return $this->metadata($cancellation)->topics[$topic]
+            ?? $this->refreshMetadata([$topic], $cancellation)->topics[$topic]
+            ?? throw new UnknownTopic($topic);
     }
 
     public function metadata(Cancellation $cancellation = new NullCancellation()): Cluster\Metadata

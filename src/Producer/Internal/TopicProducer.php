@@ -4,77 +4,75 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Producer\Internal;
 
+use Amp\Cancellation;
 use Amp\DeferredFuture;
 use Amp\Future;
+use Amp\NullCancellation;
 use Amp\Pipeline;
 use Revolt\EventLoop;
 use Thesis\Kafka\Exception;
+use Thesis\Kafka\Internal\MetadataProvider;
 use Thesis\Kafka\Internal\Protocol\Record;
+use Thesis\Kafka\Internal\TopicPartition;
 use Thesis\Kafka\Producer;
 
 /**
  * @internal
- * @template-implements \IteratorAggregate<array-key, ReadyBatch>
  */
-final class Accumulator implements \IteratorAggregate
+final class TopicProducer
 {
     /**
-     * Open batches, one per (topic, partition). Records append() into
-     * these. Sealed batches are removed from here and pushed to $ready.
+     * Open batches, one per partition. Records append() into
+     * these. Sealed batches are removed from here and pushed to $send.
      *
-     * @var array<non-empty-string, array<non-negative-int, OpenBatch>>
+     * @var array<non-negative-int, OpenBatch>
      */
     private array $open = [];
 
     /** @var array<non-empty-string, string> */
     private array $timers = [];
 
-    /**
-     * Sealed batches awaiting send.
-     *
-     * @var Pipeline\Queue<ReadyBatch>
-     */
-    private readonly Pipeline\Queue $ready;
-
-    private Accumulator\State $state = Accumulator\State::Ready;
+    private TopicProducer\State $state = TopicProducer\State::Ready;
 
     /** @var non-empty-string */
     private string $batchId = 'a';
 
-    /** @var list<\Closure(OpenBatch): void> */
-    private array $callbacks = [];
-
+    /**
+     * @param non-empty-string $topic
+     * @param Pipeline\Queue<ReadyBatch> $send
+     */
     public function __construct(
+        private readonly string $topic,
+        private readonly Producer\TopicPartitioner $partitioner,
+        private readonly MetadataProvider $metadata,
+        private readonly IdempotencyCoordinator $idempotency,
+        private readonly Pipeline\Queue $send,
         private readonly Producer\Config $config,
-    ) {
-        $this->ready = new Pipeline\Queue();
-    }
+    ) {}
 
     /**
      * Returns a future that completes when the batch
      * this record landed in has been sent and the broker responded.
      *
-     * @param non-empty-string $topic
-     * @param non-negative-int $partition
      * @return Future<Producer\Produced>
      * @throws Exception
      */
-    public function append(
-        string $topic,
-        int $partition,
+    public function queue(
         Producer\Record $record,
         ?Idempotency $idempotency = null,
-        int $sequence = 0,
+        Cancellation $cancellation = new NullCancellation(),
     ): Future {
-        if ($this->state === Accumulator\State::Dead) {
-            throw new \LogicException('Accumulator is dead, create the new one.');
+        if ($this->state === TopicProducer\State::Dead) {
+            throw new \LogicException('TopicProducer is dead, create the new one.');
         }
 
-        $open = $this->open[$topic][$partition] ?? $this->openNew(
-            topic: $topic,
+        $topicMetadata = $this->metadata->topic($this->topic, $cancellation);
+
+        $partition = $record->partition ?? $this->partitioner->partition($record, $topicMetadata->partitions());
+
+        $open = $this->open[$partition] ?? $this->openNew(
             partition: $partition,
             idempotency: $idempotency,
-            sequence: $sequence,
         );
 
         if ($this->batchReady($open, $record)) {
@@ -87,10 +85,8 @@ final class Accumulator implements \IteratorAggregate
         }
 
         $open ??= $this->openNew(
-            topic: $topic,
             partition: $partition,
             idempotency: $idempotency,
-            sequence: $sequence,
         );
 
         /** @var DeferredFuture<Producer\Produced> $deferred */
@@ -105,31 +101,21 @@ final class Accumulator implements \IteratorAggregate
         return $deferred->getFuture();
     }
 
-    /**
-     * @param \Closure(OpenBatch): void $callback
-     */
-    public function onRelease(\Closure $callback): void
-    {
-        $this->callbacks[] = $callback;
-    }
-
     public function flush(): void
     {
         /** @var list<Future<Producer\Produced>> $futures */
         $futures = [];
 
-        foreach ($this->open as $partitions) {
-            foreach ($partitions as $open) {
-                $this->release($open);
+        foreach ($this->open as $batch) {
+            $this->release($batch);
 
-                $futures = [
-                    ...$futures,
-                    ...array_map(
-                        static fn(DeferredFuture $deferred) => $deferred->getFuture(),
-                        $open->futures,
-                    ),
-                ];
-            }
+            $futures = [
+                ...$futures,
+                ...array_map(
+                    static fn(DeferredFuture $deferred) => $deferred->getFuture(),
+                    $batch->futures,
+                ),
+            ];
         }
 
         Future\awaitAll($futures);
@@ -137,29 +123,26 @@ final class Accumulator implements \IteratorAggregate
 
     public function close(): void
     {
-        if ($this->state === Accumulator\State::Ready) {
-            $this->state = Accumulator\State::Dead;
+        if ($this->state === TopicProducer\State::Ready) {
+            $this->state = TopicProducer\State::Dead;
             $this->flush();
-            $this->ready->complete();
         }
     }
 
-    #[\Override]
-    public function getIterator(): \Traversable
-    {
-        return $this->ready->iterate();
-    }
-
     /**
-     * @param non-empty-string $topic
      * @param non-negative-int $partition
      */
     private function openNew(
-        string $topic,
         int $partition,
         ?Idempotency $idempotency = null,
-        int $sequence = 0,
     ): OpenBatch {
+        $sequence = 0;
+        if ($idempotency !== null) {
+            $sequence = $this->idempotency->sequenceFor(
+                new TopicPartition($this->topic, $partition),
+            );
+        }
+
         $batch = new Protocol\RecordBatch(
             compressor: $this->config->compressor,
             attributes: new Record\Attributes(
@@ -176,12 +159,12 @@ final class Accumulator implements \IteratorAggregate
 
         $open = new OpenBatch(
             id: $batchId,
-            topic: $topic,
+            topic: $this->topic,
             partition: $partition,
             batch: $batch,
         );
 
-        $this->open[$topic][$partition] = $open;
+        $this->open[$partition] = $open;
 
         if (!$this->config->manualFlush && $this->config->linger->isPositive()) {
             /** @var \WeakReference<OpenBatch> $reference */
@@ -203,7 +186,7 @@ final class Accumulator implements \IteratorAggregate
 
     private function release(OpenBatch $open): void
     {
-        unset($this->open[$open->topic][$open->partition]);
+        unset($this->open[$open->partition]);
 
         if ($open->state === OpenBatch\State::Released) {
             return;
@@ -221,17 +204,29 @@ final class Accumulator implements \IteratorAggregate
             return;
         }
 
-        // Run callbacks (partition rotation, sequence advance) BEFORE pushing to
-        // the ready queue. push() suspends when the buffer is full, and during
-        // that suspend a concurrent append for this (topic, partition) could open
-        // a new batch — which must see the advanced sequence and rotated
-        // partition. Running them first keeps that update synchronous and ordered
-        // ahead of any work the suspend lets in.
-        foreach ($this->callbacks as $callback) {
-            $callback($open);
+        // Rotate the sticky partitioner and advance the idempotent sequence
+        // BEFORE pushing to the send queue. push() can suspend when the
+        // queue is full, and during that suspend a concurrent queue() for
+        // this partition could open a new batch — which must see the rotated
+        // partition and the advanced sequence. Doing both first keeps that
+        // state update synchronous, ahead of anything the suspend lets in.
+        if ($this->partitioner instanceof Producer\StickyTopicPartitioner) {
+            $topicMetadata = $this->metadata->topic($this->topic);
+
+            $this->partitioner->rotate(
+                partition: $open->partition,
+                partitions: $topicMetadata->partitions(),
+            );
         }
 
-        $this->ready->push($open->release());
+        if ($this->config->idempotent) {
+            $this->idempotency->reserveSequence(
+                new TopicPartition($this->topic, $open->partition),
+                \count($open),
+            );
+        }
+
+        $this->send->push($open->release());
     }
 
     private function batchReady(OpenBatch $open, Producer\Record $record): bool

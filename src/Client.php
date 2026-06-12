@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka;
 
 use Amp\Cancellation;
+use Amp\CancelledException;
 use Thesis\Kafka\Protocol\Generated;
 
 /**
@@ -25,6 +26,7 @@ final readonly class Client
      * @param Generated\Request<T> $request
      * @return T
      * @throws Exception
+     * @throws CancelledException
      */
     public function request(Generated\Request $request, ?Cancellation $cancellation = null): Generated\Response
     {
