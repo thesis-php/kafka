@@ -49,6 +49,8 @@ final readonly class RoundRobinGroupBalancer implements ClassicGroupBalancer
         // nothing still have a key for SyncGroup.
         $result = [];
         foreach ($members as $member) {
+            \assert($member->memberId !== '');
+
             $result[$member->memberId] = [];
         }
 
@@ -97,6 +99,8 @@ final readonly class RoundRobinGroupBalancer implements ClassicGroupBalancer
             // partition rather than loop forever.
             for ($i = 0; $i < $memberCount; ++$i) {
                 $memberId = $memberIds[$cursor % $memberCount]; // @phpstan-ignore offsetAccess.notFound
+                \assert($memberId !== '');
+
                 $cursor = ($cursor + 1) % $memberCount;
 
                 if (\in_array($tp->topic, $subscriptions[$memberId] ?? [], true)) {

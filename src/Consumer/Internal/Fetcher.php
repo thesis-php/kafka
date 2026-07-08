@@ -49,8 +49,6 @@ final class Fetcher
     {
         $this->cancel ??= new DeferredCancellation();
         $this->loop ??= async($this->run(...), $this->cancel->getCancellation());
-
-        $this->logger->debug('fetch loop started');
     }
 
     public function stop(Cancellation $cancellation = new NullCancellation()): void
@@ -70,8 +68,6 @@ final class Fetcher
         } finally {
             $this->cancel = null;
             $this->loop = null;
-
-            $this->logger->debug('fetch loop stopped');
         }
     }
 
@@ -115,11 +111,6 @@ final class Fetcher
     ): Generated\FetchResponse {
         $request = $this->createFetchRequest($partitions, $cancellation);
 
-        $this->logger->debug('fetching', [
-            'maxBytes' => $request->maxBytes,
-            'maxWaitMs' => $request->maxWaitMs,
-        ]);
-
         $response = $this->cluster->request(
             $request,
             $cancellation,
@@ -134,10 +125,6 @@ final class Fetcher
                 }
             }
         }
-
-        $this->logger->debug('fetch returned', [
-            'batches' => $batchCount,
-        ]);
 
         return $response;
     }
@@ -277,6 +264,12 @@ final class Fetcher
             return;
         }
 
+        // The broker returns whole record batches, so a fetch that starts
+        // mid-batch — e.g. resuming from a committed offset that falls inside a
+        // batch — comes back with the records before it too. Drop anything below
+        // the position we asked to start from, or we'd redeliver them.
+        $position = $this->subscription->position($tp);
+
         $offset = null;
 
         foreach ($batches as $records) {
@@ -289,23 +282,20 @@ final class Fetcher
                 continue; // control batch — nothing to hand to the consumer
             }
 
+            $wanted = array_values(array_filter(
+                $records->records,
+                static fn(Consumer\Record $record) => $record->offset >= $position,
+            ));
+
+            if ($wanted === []) {
+                continue; // the whole batch precedes the requested offset
+            }
+
             // Backpressure: if the buffer is full this blocks until the
             // consumer drains it (or stop() cancels us).
-            $this->queue->pushAsync($records->records)->await($cancellation);
-            $this->logger->debug('dispatched partition records', [
-                'topic' => $tp->topic,
-                'partition' => $tp->partition,
-                'records' => \count($records->records),
-                'nextOffset' => $records->nextOffset,
-            ]);
+            $this->queue->pushAsync($wanted)->await($cancellation);
         }
 
         $this->subscription->advance($tp, $offset);
-
-        $this->logger->debug('advance position', [
-            'topic' => $tp->topic,
-            'partition' => $tp->partition,
-            'offset' => $offset,
-        ]);
     }
 }

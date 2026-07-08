@@ -56,7 +56,7 @@
         "files": [
             "src/Compressor/compression.php",
             "src/Internal/Time/Duration.php",
-            "src/Internal/Retry.php"
+            "src/Internal/Retry/Operation.php"
         ]
     },
     "autoload-dev": {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka;
 
+use Amp\Future;
 use Amp\TimeoutCancellation;
 use Testo\Assert;
 use Testo\Codecov\Covers;
@@ -17,7 +18,7 @@ use function Amp\async;
 
 #[Covers(Consumer::class)]
 #[Retry(maxAttempts: 5, markFlaky: true)]
-final readonly class ConsumerTest extends TestCase
+final readonly class DirectConsumerTest extends TestCase
 {
     #[Test]
     public function earliestConsumesMessagesProducedEarlier(): void
@@ -124,18 +125,16 @@ final readonly class ConsumerTest extends TestCase
             autoOffsetReset: AutoOffsetReset::Latest,
         ));
 
-        $first = async(static fn(): array => iterator_to_array($consumer->consume()));
+        $futures = [];
+        $futures[] = async($consumer->consume(...));
+        $futures[] = async($consumer->consume(...));
 
         try {
-            $consumer->consume(
-                ConsumeMode::Poll,
-                new TimeoutCancellation(0.1),
-            );
+            Future\await($futures);
 
             Assert::fail('Expected ConsumerBusy to be thrown.');
         } catch (ConsumerBusy) {
             $consumer->close();
-            Assert::array($first->await())->hasCount(0);
         } finally {
             $this->deleteTopic($client, $topic);
             $client->close();

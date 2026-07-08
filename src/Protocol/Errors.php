@@ -10,7 +10,8 @@ namespace Thesis\Kafka\Protocol;
  */
 final readonly class Errors implements
     \IteratorAggregate,
-    \Countable
+    \Countable,
+    \Stringable
 {
     /**
      * @param list<Error> $errors
@@ -42,7 +43,7 @@ final readonly class Errors implements
             $response instanceof Generated\DescribeGroupsResponse => self::fromDescribeGroups($response),
             $response instanceof Generated\ListGroupsResponse => self::fromTopLevel($response->errorCode),
             $response instanceof Generated\DeleteGroupsResponse => self::fromDeleteGroups($response),
-            $response instanceof Generated\FindCoordinatorResponse => self::fromTopLevel($response->errorCode, $response->errorMessage),
+            $response instanceof Generated\FindCoordinatorResponse => self::fromFindCoordinator($response),
             $response instanceof Generated\DescribeClusterResponse => self::fromTopLevel($response->errorCode, $response->errorMessage),
             $response instanceof Generated\ApiVersionsResponse => self::fromTopLevel($response->errorCode),
             $response instanceof Generated\SaslHandshakeResponse => self::fromTopLevel($response->errorCode),
@@ -72,9 +73,9 @@ final readonly class Errors implements
         return $this->errors === [];
     }
 
-    public function has(ErrorCode $code): bool
+    public function has(ErrorCode ...$errors): bool
     {
-        return array_any($this->errors, static fn(Error $error) => $error->code() === $code);
+        return array_any($this->errors, static fn(Error $error) => \in_array($error->code(), $errors, true));
     }
 
     /**
@@ -98,6 +99,22 @@ final readonly class Errors implements
     public function getIterator(): \Traversable
     {
         yield from $this->errors;
+    }
+
+    #[\Override]
+    public function __toString(): string
+    {
+        $message = \sprintf(
+            'Kafka request failed with %d protocol error(s):',
+            \count($this->errors),
+        );
+
+        foreach ($this->errors as $error) {
+            $message .= PHP_EOL . PHP_EOL . $error::class;
+            $message .= " [{$error->code()->message()}]: {$error->message()}";
+        }
+
+        return $message;
     }
 
     /**
@@ -668,6 +685,34 @@ final readonly class Errors implements
             $code = self::code($transaction->errorCode);
             if ($code !== ErrorCode::None) {
                 $errors[] = new Error\TransactionError($transaction->transactionalId, $code);
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @return list<Error>
+     */
+    private static function fromFindCoordinator(Generated\FindCoordinatorResponse $response): array
+    {
+        $errors = [];
+
+        $code = self::code($response->errorCode);
+        if ($code !== ErrorCode::None) {
+            $errors[] = new Error\TopLevelError($code, $response->errorMessage);
+        }
+
+        foreach ($response->coordinators as $coordinator) {
+            $code = self::code($coordinator->errorCode);
+            if ($code !== ErrorCode::None) {
+                $errors[] = new Error\CoordinatorError(
+                    $coordinator->nodeId,
+                    $coordinator->host,
+                    $coordinator->port,
+                    $code,
+                    $coordinator->errorMessage,
+                );
             }
         }
 

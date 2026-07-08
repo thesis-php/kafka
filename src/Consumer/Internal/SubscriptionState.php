@@ -57,6 +57,16 @@ final class SubscriptionState
     }
 
     /**
+     * The offset the next fetch for this partition will request.
+     *
+     * @return non-negative-int
+     */
+    public function position(TopicPartition $tp): int
+    {
+        return $this->positions[$tp];
+    }
+
+    /**
      * @param non-negative-int $offset
      */
     public function advance(TopicPartition $tp, int $offset): void

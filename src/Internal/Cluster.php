@@ -61,16 +61,10 @@ final class Cluster implements MetadataProvider
         );
 
         $this->seeds = array_map(
-            fn(int $index, Config\Endpoint $endpoint) => new Cluster\Broker(
+            static fn(int $index, Config\Endpoint $endpoint) => new Cluster\Broker(
                 Cluster\NodeId::unknown($index),
                 $endpoint,
                 $factory,
-                $this->logger->with([
-                    'component' => 'broker',
-                    'nodeId' => Cluster\NodeId::unknown($index)->id,
-                    'host' => $endpoint->host,
-                    'port' => $endpoint->port,
-                ]),
             ),
             array_keys($this->config->seeds),
             $this->config->seeds,
@@ -96,7 +90,7 @@ final class Cluster implements MetadataProvider
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
      * @param ?non-negative-int $brokerId
-     * @param ?Retry<T> $retry
+     * @param ?Retry\Operation<T> $retry
      * @return ($reply is Connection\Reply::Expected ? T : null)
      * @throws Exception
      * @throws CancelledException
@@ -106,7 +100,7 @@ final class Cluster implements MetadataProvider
         ?Cancellation $cancellation = null,
         Connection\Reply $reply = Connection\Reply::Expected,
         ?int $brokerId = null,
-        ?Retry $retry = null,
+        ?Retry\Operation $retry = null,
     ): mixed {
         if ($reply === Connection\Reply::None && $retry !== null) {
             throw new \LogicException('Retry cannot be set with Reply::None.');
@@ -161,7 +155,7 @@ final class Cluster implements MetadataProvider
     }
 
     /**
-     * @param ?list<non-empty-string> $topics
+     * @param ?list<string> $topics
      */
     public function refreshMetadata(?array $topics = null, Cancellation $cancellation = new NullCancellation()): Cluster\Metadata
     {
@@ -218,18 +212,8 @@ final class Cluster implements MetadataProvider
         }
 
         if ($request->apiKey()->requiresAnyListener(Generated\Listener::Controller)) {
-            $this->logger->debug('routing request', [
-                'apiKey' => $request->apiKey()->name,
-                'type' => 'controller',
-            ]);
-
             return $this->doControllerRequest($request, $cancellation);
         }
-
-        $this->logger->debug('routing request', [
-            'apiKey' => $request->apiKey()->name,
-            'type' => 'broker',
-        ]);
 
         return $this->doBrokerRequest($request, $cancellation, $reply);
     }
@@ -242,8 +226,6 @@ final class Cluster implements MetadataProvider
         Generated\MetadataRequest $request,
         Cancellation $cancellation,
     ): Generated\MetadataResponse {
-        $this->logger->notice('refreshing metadata');
-
         try {
             /** @var Generated\MetadataResponse $response */
             $response = $this->doBrokerRequest($request, $cancellation);
@@ -267,12 +249,6 @@ final class Cluster implements MetadataProvider
 
         $this->discover($response);
         $this->createMetadataSnapshot($response);
-
-        $this->logger->notice('metadata refreshed', [
-            'controllerId' => $response->controllerId,
-            'topics' => \count($response->topics),
-            'brokers' => \count($response->brokers),
-        ]);
 
         return $response;
     }
@@ -444,12 +420,6 @@ final class Cluster implements MetadataProvider
                 nodeId: new Cluster\NodeId($id),
                 endpoint: $endpoint,
                 factory: $this->factory,
-                logger: $this->logger->with([
-                    'component' => 'broker',
-                    'nodeId' => $id,
-                    'host' => $endpoint->host,
-                    'port' => $endpoint->port,
-                ]),
             );
         }
 

@@ -51,6 +51,9 @@ final readonly class RangeGroupBalancer implements ClassicGroupBalancer
 
         foreach ($members as $member) {
             foreach ($member->topics as $topic) {
+                \assert($topic !== '');
+                \assert($member->memberId !== '');
+
                 $subscribersByTopic[$topic][] = $member->memberId;
             }
         }
@@ -60,6 +63,8 @@ final readonly class RangeGroupBalancer implements ClassicGroupBalancer
         // (possibly empty) assignment, and a missing key would mean no message.
         $result = [];
         foreach ($members as $member) {
+            \assert($member->memberId !== '');
+
             $result[$member->memberId] = [];
         }
 

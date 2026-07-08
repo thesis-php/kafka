@@ -15,9 +15,8 @@ namespace Thesis\Kafka\Consumer;
 final readonly class GroupMember
 {
     /**
-     * @param non-empty-string $memberId
-     * @param non-empty-list<non-empty-string> $topics topics this member subscribed to
-     * @param array<non-empty-string, list<int>> $ownedPartitions currently owned (cooperative), empty for eager
+     * @param list<string> $topics topics this member subscribed to
+     * @param array<string, list<int>> $ownedPartitions currently owned (cooperative), empty for eager
      * @param ?string $userData opaque assignor state (sticky), null otherwise
      */
     public function __construct(

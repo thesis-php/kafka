@@ -9,6 +9,8 @@ namespace Thesis\Kafka\Consumer;
  */
 enum AutoOffsetReset: int
 {
+    case None = 0;
+
     /** Start from the earliest available offset in the log. */
     case Earliest = -2;
 

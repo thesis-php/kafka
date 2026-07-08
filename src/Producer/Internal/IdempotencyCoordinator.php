@@ -127,7 +127,7 @@ final class IdempotencyCoordinator
         $response = $this->cluster->request(
             request: $request,
             cancellation: $cancellation,
-            retry: new Retry(
+            retry: new Retry\Operation(
                 static fn(Generated\InitProducerIdResponse $response): ErrorCode => ErrorCode::from($response->errorCode),
                 logger: $this->logger->with([
                     'component' => 'retry',

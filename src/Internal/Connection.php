@@ -148,14 +148,6 @@ final class Connection
             responseVersion: $responseVersion,
         );
 
-        $context = [
-            'correlationId' => $id,
-            'apiKey' => $call->request->apiKey()->name,
-            'apiVersion' => $requestVersion,
-        ];
-
-        $this->logger->debug('sending request', $context);
-
         if ($reply === Connection\Reply::Expected) {
             $this->pending[$id] = $request;
         }
@@ -165,16 +157,16 @@ final class Connection
         try {
             $response = $deferred->getFuture()->await($cancellation);
 
-            if ($reply === Connection\Reply::Expected) {
-                $this->logger->debug('received response', $context);
-            }
-
             return $response;
         } catch (\Throwable $e) {
-            $this->logger->error('receive response error', [
-                ...$context,
-                'exception' => $e,
-            ]);
+            if (!$e instanceof CancelledException) {
+                $this->logger->error('receive response error', [
+                    'correlationId' => $id,
+                    'apiKey' => $call->request->apiKey()->name,
+                    'apiVersion' => $requestVersion,
+                    'exception' => $e,
+                ]);
+            }
 
             throw $e;
         } finally {
@@ -230,9 +222,6 @@ final class Connection
             $error = ErrorCode::from($response->errorCode);
             if ($error === ErrorCode::None) {
                 $this->versions->seed(...$response->apiKeys);
-                $this->logger->info('api versions negotiated', [
-                    'supportedApi' => \count($response->apiKeys),
-                ]);
 
                 return;
             }

@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Thesis\Kafka\Internal;
+namespace Thesis\Kafka\Internal\Retry;
 
 use Amp\Cancellation;
 use Thesis\Kafka\Exception;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\NetworkException;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
@@ -15,7 +16,7 @@ use function Amp\delay;
  * @internal
  * @template T of Generated\Response
  */
-final readonly class Retry
+final readonly class Operation
 {
     /**
      * @param \Closure(T): ErrorCode $errorOf

@@ -73,18 +73,48 @@ final readonly class Client
             $topics = [$topics];
         }
 
-        return new Consumer\Internal\AsyncConsumer(
-            cluster: new Internal\Cluster($this->config, $this->logger),
+        $cluster = new Internal\Cluster($this->config, $this->logger);
+
+        $group = $config->group;
+
+        $context = [
+            'component' => 'consumer',
+            'topics' => implode(', ', $topics),
+            'autoOffsetReset' => $config->autoOffsetReset->name,
+            'isolationLevel' => $config->isolationLevel->name,
+        ];
+
+        if ($group !== null) {
+            $context = array_merge($context, [
+                'groupId' => $group->groupId,
+                'groupInstanceId' => $group->groupInstanceId,
+                'autocommit' => $group->autocommit,
+                'balancers' => array_map(
+                    static fn(Consumer\GroupBalancer $balancer) => $balancer->name(),
+                    $group->balancers,
+                ),
+            ]);
+        }
+
+        $logger = $this->logger->with($context);
+
+        if ($group !== null) {
+            return new Consumer\Internal\GroupConsumer(
+                cluster: $cluster,
+                config: $config,
+                group: $group,
+                requestTimeout: $this->config->requestTimeout,
+                topics: $topics,
+                logger: $logger,
+            );
+        }
+
+        return new Consumer\Internal\DirectConsumer(
+            cluster: $cluster,
             config: $config,
             requestTimeout: $this->config->requestTimeout,
             topics: $topics,
-            logger: $this->logger->with([
-                'component' => 'consumer',
-                'topics' => implode(', ', $topics),
-                'autoOffsetReset' => $config->autoOffsetReset->name,
-                'isolationLevel' => $config->isolationLevel->name,
-                'groupId' => $config->group?->groupId,
-            ]),
+            logger: $logger,
         );
     }
 

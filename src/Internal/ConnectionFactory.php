@@ -91,11 +91,6 @@ final readonly class ConnectionFactory
             throw $e;
         }
 
-        $this->logger->info('connection established', [
-            'host' => $endpoint->host,
-            'port' => $endpoint->port,
-        ]);
-
         return $connection;
     }
 

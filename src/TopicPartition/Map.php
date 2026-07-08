@@ -25,6 +25,20 @@ final class Map extends \SplObjectStorage
     }
 
     /**
+     * @return list<non-empty-string>
+     */
+    public function topics(): array
+    {
+        $topics = [];
+
+        foreach ($this as $key) {
+            $topics[] = $key->topic;
+        }
+
+        return $topics;
+    }
+
+    /**
      * @return iterable<array-key, TValue>
      */
     public function values(): iterable
