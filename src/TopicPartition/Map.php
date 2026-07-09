@@ -39,6 +39,16 @@ final class Map extends \SplObjectStorage
     }
 
     /**
+     * @return \Generator<TopicPartition, TValue>
+     */
+    public function iter(): \Generator
+    {
+        foreach ($this as $key) {
+            yield $key => $this[$key];
+        }
+    }
+
+    /**
      * @return iterable<array-key, TValue>
      */
     public function values(): iterable

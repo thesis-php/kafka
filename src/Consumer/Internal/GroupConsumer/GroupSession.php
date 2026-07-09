@@ -54,18 +54,12 @@ final readonly class GroupSession
             $cancellation,
         );
 
-        $partitions = array_map(
-            static fn(TopicPartition $tp) => $tp->partition,
-            $this->membership->assignments,
-        );
-
         $this->logger->info('group started', [
             'generationId' => $this->membership->generationId,
             'memberId' => $this->membership->memberId,
-            'partitions' => $partitions,
-            'offsets' => array_combine(
-                $partitions,
-                array_map(static fn(TopicPartition $tp) => $offsets[$tp], $this->membership->assignments),
+            'offsets' => array_map(
+                static fn(TopicPartition $tp) => ["{$tp->topic}/{$tp->partition}" => $offsets[$tp]],
+                $this->membership->assignments,
             ),
         ]);
 

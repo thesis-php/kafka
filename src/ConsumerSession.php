@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka;
 
-use Amp\Cancellation;
-use Amp\NullCancellation;
-
 /**
  * @api
  */
@@ -25,10 +22,26 @@ interface ConsumerSession extends ConsumerContext
      * Group mode only.
      *
      * @param Consumer\Record|non-empty-list<Consumer\Record> $records
-     * @throws Exception\NoGroupConfigured
+     * @throws Exception
      */
-    public function commit(
-        Consumer\Record|array $records,
-        Cancellation $cancellation = new NullCancellation(),
-    ): void;
+    public function commitRecords(Consumer\Record|array $records): void;
+
+    /**
+     * Commit every partition's delivered position — the highest offset the
+     * client has handed you since the last commit, across all owned
+     * partitions.
+     *
+     * Unlike {@see commitRecords()}, you pass nothing: the client already
+     * tracks how far consumption has advanced per partition, so there's no
+     * need to hold on to the records. That also makes
+     * this the cheaper call to reach for: instead of committing after every
+     * batch, let progress accumulate and call this periodically; each call
+     * folds many delivered records into a single commit. Offsets already
+     * committed are skipped, so calling it when nothing new arrived is a no-op.
+     *
+     * Group mode only.
+     *
+     * @throws Exception
+     */
+    public function commitUncommitted(): void;
 }

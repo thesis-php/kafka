@@ -12,7 +12,6 @@ use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\TopicPartition;
-use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 /**
@@ -20,10 +19,6 @@ use function Amp\async;
  */
 final class DirectConsumer implements Consumer
 {
-    private readonly AssignmentConsumer $consumer;
-
-    private readonly OffsetLister $offsets;
-
     /** @var ?Future<null> */
     private ?Future $setup = null;
 
@@ -34,22 +29,11 @@ final class DirectConsumer implements Consumer
      */
     public function __construct(
         private readonly Cluster $cluster,
-        private readonly Consumer\Config $config,
-        private readonly TimeSpan $requestTimeout,
+        private readonly AssignmentConsumer $consumer,
+        private readonly OffsetLister $offsets,
         private readonly array $topics,
         private readonly ContextLogger $logger,
-    ) {
-        $this->consumer = new AssignmentConsumer(
-            cluster: $this->cluster,
-            config: $this->config,
-            logger: $this->logger,
-        );
-        $this->offsets = new OffsetLister(
-            cluster: $this->cluster,
-            config: $this->config,
-            requestTimeout: $this->requestTimeout,
-        );
-    }
+    ) {}
 
     #[\Override]
     public function consume(
@@ -80,14 +64,10 @@ final class DirectConsumer implements Consumer
     }
 
     #[\Override]
-    public function commit(
-        Consumer\Record|array $records,
-        Cancellation $cancellation = new NullCancellation(),
-    ): void {
-        throw new Exception\NoGroupConfigured(
-            'Commit requires a consumer group, this consumer has none configured.',
-        );
-    }
+    public function commitRecords(Consumer\Record|array $records): void {}
+
+    #[\Override]
+    public function commitUncommitted(): void {}
 
     #[\Override]
     public function close(): void

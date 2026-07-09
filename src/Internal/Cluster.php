@@ -116,7 +116,7 @@ final class Cluster implements MetadataProvider
         // Default to a client-side timeout based on Config: without it,
         // a slow broker would stall the caller indefinitely. Callers
         // who want different semantics pass their own Cancellation.
-        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds());
+        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds(3));
 
         /** @var \Closure(): T $call */
         $call = fn() => $this->doRequest(
@@ -157,7 +157,7 @@ final class Cluster implements MetadataProvider
     /**
      * @param ?list<string> $topics
      */
-    public function refreshMetadata(?array $topics = null, Cancellation $cancellation = new NullCancellation()): Cluster\Metadata
+    public function refreshMetadata(?array $topics = null, ?Cancellation $cancellation = null): Cluster\Metadata
     {
         /** @var ?UuidInterface $nilUuid */
         static $nilUuid;
@@ -195,10 +195,12 @@ final class Cluster implements MetadataProvider
      */
     private function doRequest(
         Generated\Request $request,
-        Cancellation $cancellation,
+        ?Cancellation $cancellation = null,
         Connection\Reply $reply = Connection\Reply::Expected,
         ?int $brokerId = null,
     ): mixed {
+        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds(3));
+
         if ($brokerId !== null) {
             $broker = $this->brokers[$brokerId] ?? throw new UnknownBroker($brokerId);
             return $broker->request($request, $cancellation, $reply);
@@ -224,7 +226,7 @@ final class Cluster implements MetadataProvider
      */
     private function doMetadataRequest(
         Generated\MetadataRequest $request,
-        Cancellation $cancellation,
+        ?Cancellation $cancellation = null,
     ): Generated\MetadataResponse {
         try {
             /** @var Generated\MetadataResponse $response */
@@ -261,8 +263,10 @@ final class Cluster implements MetadataProvider
      */
     private function doControllerRequest(
         Generated\Request $request,
-        Cancellation $cancellation,
+        ?Cancellation $cancellation = null,
     ): Generated\Response {
+        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds(3));
+
         // Only two attempts: first with whatever controllerId we currently
         // believe, second after a forced metadata refresh. Anything
         // beyond two attempts in a tight loop suggests a real cluster
@@ -327,9 +331,11 @@ final class Cluster implements MetadataProvider
      */
     private function doBrokerRequest(
         Generated\Request $request,
-        Cancellation $cancellation,
+        ?Cancellation $cancellation = null,
         Connection\Reply $reply = Connection\Reply::Expected,
     ): mixed {
+        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds(3));
+
         $errors = [];
 
         // Prefer brokers that already have a live connection. Reusing

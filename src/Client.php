@@ -8,6 +8,8 @@ use Amp\Cancellation;
 use Amp\CancelledException;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Thesis\Kafka\Consumer\Internal\DirectConsumerFactory;
+use Thesis\Kafka\Consumer\Internal\GroupConsumerFactory;
 use Thesis\Kafka\Protocol\Generated;
 
 /**
@@ -18,6 +20,10 @@ final readonly class Client
     private Internal\Cluster $admin;
 
     private Internal\ContextLogger $logger;
+
+    private DirectConsumerFactory $directConsumerFactory;
+
+    private GroupConsumerFactory $groupConsumerFactory;
 
     public function __construct(
         public Config $config,
@@ -31,6 +37,8 @@ final readonly class Client
 
         $this->logger = $logger;
         $this->admin = new Internal\Cluster($config, $logger);
+        $this->directConsumerFactory = new DirectConsumerFactory($config, $logger);
+        $this->groupConsumerFactory = new GroupConsumerFactory($config, $logger);
     }
 
     /**
@@ -73,49 +81,10 @@ final readonly class Client
             $topics = [$topics];
         }
 
-        $cluster = new Internal\Cluster($this->config, $this->logger);
-
-        $group = $config->group;
-
-        $context = [
-            'component' => 'consumer',
-            'topics' => implode(', ', $topics),
-            'autoOffsetReset' => $config->autoOffsetReset->name,
-            'isolationLevel' => $config->isolationLevel->name,
-        ];
-
-        if ($group !== null) {
-            $context = array_merge($context, [
-                'groupId' => $group->groupId,
-                'groupInstanceId' => $group->groupInstanceId,
-                'autocommit' => $group->autocommit,
-                'balancers' => array_map(
-                    static fn(Consumer\GroupBalancer $balancer) => $balancer->name(),
-                    $group->balancers,
-                ),
-            ]);
-        }
-
-        $logger = $this->logger->with($context);
-
-        if ($group !== null) {
-            return new Consumer\Internal\GroupConsumer(
-                cluster: $cluster,
-                config: $config,
-                group: $group,
-                requestTimeout: $this->config->requestTimeout,
-                topics: $topics,
-                logger: $logger,
-            );
-        }
-
-        return new Consumer\Internal\DirectConsumer(
-            cluster: $cluster,
-            config: $config,
-            requestTimeout: $this->config->requestTimeout,
-            topics: $topics,
-            logger: $logger,
-        );
+        return match (($group = $config->group) !== null) {
+            true => $this->groupConsumerFactory->create($topics, $config, $group),
+            default => $this->directConsumerFactory->create($topics, $config),
+        };
     }
 
     /**

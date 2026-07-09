@@ -33,7 +33,7 @@ final readonly class JoinController
         private Coordinator $coordinator,
         private Consumer\GroupConfig $group,
         private array $topics,
-        private DataSerializer $data,
+        private DataSerializer $data = new DataSerializer(),
     ) {}
 
     /**

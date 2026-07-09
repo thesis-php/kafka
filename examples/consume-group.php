@@ -46,7 +46,7 @@ $future = async(static function () use (
 
 foreach ($consumer->consume() as $batch) {
     dump($batch);
-    $consumer->commit($batch);
+    $consumer->commitRecords($batch);
 }
 
 $future->await();

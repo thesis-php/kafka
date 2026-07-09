@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Consumer;
 
 use Thesis\Kafka\RecordHeader;
+use Thesis\Kafka\TopicPartition;
 
 /**
  * @api
@@ -27,4 +28,9 @@ final readonly class Record
         public array $headers,
         public int $timestamp,
     ) {}
+
+    public function tp(): TopicPartition
+    {
+        return new TopicPartition($this->topic, $this->partition);
+    }
 }

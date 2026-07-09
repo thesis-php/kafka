@@ -49,7 +49,7 @@ final class Coordinator
      */
     public function request(
         Generated\Request $request,
-        Cancellation $cancellation,
+        ?Cancellation $cancellation = null,
     ): Generated\Response {
         $backoff = static fn(int $attempt) => delay(Retry\backoff($attempt), cancellation: $cancellation); // @phpstan-ignore argument.type
 
@@ -107,7 +107,7 @@ final class Coordinator
     /**
      * @return non-negative-int
      */
-    private function discover(Cancellation $cancellation): int
+    private function discover(?Cancellation $cancellation = null): int
     {
         if ($this->brokerId !== null) {
             return $this->brokerId;
@@ -126,7 +126,7 @@ final class Coordinator
      * @throws Exception
      * @throws CancelledException
      */
-    private function findCoordinator(Cancellation $cancellation): int
+    private function findCoordinator(?Cancellation $cancellation = null): int
     {
         for ($attempt = 1;; ++$attempt) {
             $response = $this->cluster->request(

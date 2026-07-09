@@ -14,6 +14,7 @@ use Thesis\Kafka\Consumer\AutoOffsetReset;
 use Thesis\Kafka\Consumer\ConsumeMode;
 use Thesis\Time\TimeSpan;
 use function Amp\async;
+use function Amp\delay;
 
 #[Covers(Consumer\Internal\GroupConsumer::class)]
 #[Retry(maxAttempts: 5, markFlaky: true)]
@@ -86,8 +87,66 @@ final readonly class GroupConsumerTest extends TestCase
         Assert::same($processed[0]->value, 'r0');
         Assert::same($processed[1]->value, 'r1');
 
-        $first->commit($processed);
+        $first->commitRecords($processed);
         $first->close();
+
+        $second = self::createGroupConsumer($client, $topic, $groupId);
+        $resumed = self::consumeUntil($second, 2);
+
+        $prefix = \array_slice($resumed, 0, 2);
+        \assert(\count($prefix) === 2);
+
+        Assert::same($prefix[0]->value, 'r2');
+        Assert::same($prefix[1]->value, 'r3');
+        Assert::same($prefix[0]->offset, 2);
+        Assert::same($prefix[1]->offset, 3);
+
+        $values = array_map(static fn(Consumer\Record $record) => $record->value, $resumed);
+        Assert::false(\in_array('r0', $values, true));
+        Assert::false(\in_array('r1', $values, true));
+
+        $second->close();
+        $producer->close();
+        $this->deleteTopic($client, $topic);
+        $client->close();
+    }
+
+    #[Test]
+    public function autocommit(): void
+    {
+        $client = $this->createClient();
+        $topic = $this->createTopic($client, prefix: 'thesis-group');
+        $this->waitUntilTopicVisible($client, $topic);
+
+        $producer = $client->createProducer();
+        $producer->produceSync([
+            new Producer\Record(value: 'r0', topic: $topic, partition: 0),
+            new Producer\Record(value: 'r1', topic: $topic, partition: 0),
+        ]);
+
+        $groupId = self::generateGroupId();
+
+        $first = self::createGroupConsumer(
+            $client,
+            $topic,
+            $groupId,
+            autocommit: true,
+            autocommitInterval: TimeSpan::fromSeconds(1),
+        );
+
+        $consumed = self::consumeUntil($first, 2);
+        \assert(\count($consumed) === 2);
+
+        Assert::same($consumed[0]->value, 'r0');
+        Assert::same($consumed[1]->value, 'r1');
+
+        delay(1.5);
+        $first->close();
+
+        $producer->produceSync([
+            new Producer\Record(value: 'r2', topic: $topic, partition: 0),
+            new Producer\Record(value: 'r3', topic: $topic, partition: 0),
+        ]);
 
         $second = self::createGroupConsumer($client, $topic, $groupId);
         $resumed = self::consumeUntil($second, 2);
@@ -168,15 +227,22 @@ final readonly class GroupConsumerTest extends TestCase
      * @param non-empty-string $groupId
      * @param non-empty-string $topic
      */
-    private static function createGroupConsumer(Client $client, string $topic, string $groupId): Consumer
-    {
+    private static function createGroupConsumer(
+        Client $client,
+        string $topic,
+        string $groupId,
+        bool $autocommit = false,
+        ?TimeSpan $autocommitInterval = null,
+    ): Consumer {
         return $client->createConsumer($topic, new Consumer\Config(
             autoOffsetReset: AutoOffsetReset::Earliest,
             group: new Consumer\GroupConfig(
                 groupId: $groupId,
                 sessionTimeout: TimeSpan::fromSeconds(6),
                 heartbeatInterval: TimeSpan::fromSeconds(1),
+                autocommitInterval: $autocommitInterval,
                 rebalanceTimeout: TimeSpan::fromSeconds(6),
+                autocommit: $autocommit,
             ),
         ));
     }

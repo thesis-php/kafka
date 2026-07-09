@@ -11,15 +11,13 @@ use Amp\Future;
 use Amp\NullCancellation;
 use Amp\Pipeline;
 use Amp\TimeoutCancellation;
+use Revolt\EventLoop;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
-use Thesis\Kafka\Internal\Protocol\DataSerializer;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
-use Thesis\Kafka\TopicPartition;
-use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 /**
@@ -27,24 +25,16 @@ use function Amp\async;
  */
 final class GroupConsumer implements Consumer
 {
-    private readonly AssignmentConsumer $consumer;
-
-    private readonly GroupConsumer\Coordinator $coordinator;
-
-    private readonly GroupConsumer\JoinController $joinController;
-
-    private readonly GroupConsumer\OffsetResolver $offsets;
-
-    private readonly GroupConsumer\OffsetCommitter $committer;
-
     /**
-     * The membership of the generation currently running. Read by {@see commit()};
+     * The membership of the generation currently running. Read by {@see commitRecords()};
      * a commit carrying a stale generation is rejected by the coordinator.
      */
     private ?GroupConsumer\Membership $membership = null;
 
     /** @var ?Future<*> */
     private ?Future $loop = null;
+
+    private ?string $autocommitId = null;
 
     private GroupConsumer\ConsumerState $state = GroupConsumer\ConsumerState::Idle;
 
@@ -56,62 +46,22 @@ final class GroupConsumer implements Consumer
     /** @var Pipeline\ConcurrentIterator<non-empty-list<Consumer\Record>> */
     private readonly Pipeline\ConcurrentIterator $iterator;
 
-    private readonly DataSerializer $data;
-
     private readonly DeferredCancellation $cancellation;
 
-    /**
-     * @param non-empty-list<non-empty-string> $topics
-     */
     public function __construct(
         private readonly Cluster $cluster,
+        private readonly ContextLogger $logger,
+        private readonly AssignmentConsumer $consumer,
         private readonly Consumer\Config $config,
         private readonly Consumer\GroupConfig $group,
-        private readonly TimeSpan $requestTimeout,
-        private readonly array $topics,
-        private readonly ContextLogger $logger,
+        private readonly GroupConsumer\Coordinator $coordinator,
+        private readonly GroupConsumer\JoinController $joinController,
+        private readonly GroupConsumer\OffsetResolver $offsets,
+        private readonly GroupConsumer\OffsetCommitter $committer,
     ) {
-        $this->data = new DataSerializer();
         $this->queue = new Pipeline\Queue($config->prefetchBufferSize);
         $this->iterator = $this->queue->iterate();
         $this->cancellation = new DeferredCancellation();
-        $this->coordinator = new GroupConsumer\Coordinator(
-            groupId: $group->groupId,
-            cluster: $cluster,
-            logger: $logger,
-        );
-
-        $this->consumer = new AssignmentConsumer(
-            cluster: $this->cluster,
-            config: $this->config,
-            logger: $this->logger,
-        );
-
-        $this->joinController = new GroupConsumer\JoinController(
-            cluster: $this->cluster,
-            coordinator: $this->coordinator,
-            group: $this->group,
-            topics: $this->topics,
-            data: $this->data,
-        );
-
-        $this->offsets = new GroupConsumer\OffsetResolver(
-            cluster: $this->cluster,
-            coordinator: $this->coordinator,
-            lister: new OffsetLister(
-                cluster: $this->cluster,
-                config: $this->config,
-                requestTimeout: $this->requestTimeout,
-            ),
-            groupId: $this->group->groupId,
-            autoOffsetReset: $this->config->autoOffsetReset,
-        );
-
-        $this->committer = new GroupConsumer\OffsetCommitter(
-            cluster: $this->cluster,
-            coordinator: $this->coordinator,
-            group: $this->group,
-        );
     }
 
     #[\Override]
@@ -122,6 +72,13 @@ final class GroupConsumer implements Consumer
         if ($this->state === GroupConsumer\ConsumerState::Idle) {
             $this->state = GroupConsumer\ConsumerState::Running;
             $this->loop = async($this->run(...));
+
+            if ($this->group->autocommit) {
+                $this->autocommitId = EventLoop::repeat(
+                    $this->group->autocommitInterval->toSeconds(3),
+                    $this->doCommitUncommitted(...),
+                );
+            }
         } elseif ($this->state === GroupConsumer\ConsumerState::Closed) {
             throw new Exception\ConsumerClosed();
         }
@@ -144,10 +101,8 @@ final class GroupConsumer implements Consumer
     }
 
     #[\Override]
-    public function commit(
-        array|Consumer\Record $records,
-        Cancellation $cancellation = new NullCancellation(),
-    ): void {
+    public function commitRecords(array|Consumer\Record $records): void
+    {
         $membership = $this->membership
             ?? throw new \LogicException('Cannot commit before the consumer has joined the group.');
 
@@ -155,16 +110,13 @@ final class GroupConsumer implements Consumer
             $records = [$records];
         }
 
-        /** @var TopicPartition\Map<non-negative-int> $offsets */
-        $offsets = new TopicPartition\Map();
-        foreach ($records as $record) {
-            $tp = new TopicPartition($record->topic, $record->partition);
-            // Committed offset is the next one to read: last processed + 1.
-            $next = $record->offset + 1;
-            $offsets[$tp] = isset($offsets[$tp]) ? max($offsets[$tp], $next) : $next;
-        }
+        $this->committer->commitRecords($records, $membership);
+    }
 
-        $this->committer->commit($offsets, $membership, $cancellation);
+    #[\Override]
+    public function commitUncommitted(): void
+    {
+        $this->doCommitUncommitted();
     }
 
     #[\Override]
@@ -177,6 +129,14 @@ final class GroupConsumer implements Consumer
         $this->logger->info('consumer closing');
 
         $this->state = GroupConsumer\ConsumerState::Closed;
+
+        if ($this->autocommitId !== null) {
+            EventLoop::cancel($this->autocommitId);
+            $this->autocommitId = null;
+
+            $this->commitUncommitted();
+        }
+
         $this->cancellation->cancel();
         $this->loop?->await();
         $this->cluster->close();
@@ -203,13 +163,13 @@ final class GroupConsumer implements Consumer
                     logger: $this->logger,
                 );
 
-                // Blocks for the whole generation; returns here to rejoin on rebalance.
+                // Blocks for the whole generation, returns here to rejoin on rebalance.
                 $session->run($this->queue, $cancellation);
             }
 
             $this->queue->complete();
         } catch (CancelledException) {
-            $this->queue->complete(); // expected on close()
+            $this->queue->complete();
         } catch (\Throwable $e) {
             $this->queue->error($e);
         } finally {
@@ -247,7 +207,6 @@ final class GroupConsumer implements Consumer
                         ),
                     ],
                 ),
-                new TimeoutCancellation($this->requestTimeout->toSeconds(3)),
             );
 
             $errors = Errors::for($response);
@@ -266,22 +225,44 @@ final class GroupConsumer implements Consumer
         Consumer\ConsumeMode $mode,
         Cancellation $cancellation,
     ): iterable {
+        $consume = function (): iterable {
+            $batch = $this->iterator->getValue();
+
+            $this->committer->mark($batch);
+
+            return $batch;
+        };
+
         try {
             if (!$this->iterator->continue($cancellation)) {
                 return;
             }
 
-            yield $this->iterator->getValue();
+            yield $consume();
 
             if ($mode === Consumer\ConsumeMode::Stream) {
                 while ($this->iterator->continue($cancellation)) {
-                    yield $this->iterator->getValue();
+                    yield $consume();
                 }
             }
         } catch (CancelledException) {
             return;
         } finally {
             $this->consume = GroupConsumer\ConsumeState::Idle;
+        }
+    }
+
+    private function doCommitUncommitted(): void
+    {
+        // Nothing to commit until the consumer has joined and started delivering.
+        if ($this->membership === null) {
+            return;
+        }
+
+        try {
+            $this->committer->commitUncommitted($this->membership);
+        } catch (\Throwable $e) {
+            $this->logger->warning('autocommit failed', ['exception' => $e]);
         }
     }
 }
