@@ -20,5 +20,5 @@ $producer = $client->createProducer(new Producer\Config(
     defaultTopic: 'events',
 ));
 
-$future = $producer->produce(new Producer\Record('x', 'y'));
+$future = $producer->produce(new Producer\Record('x'));
 dump($future->await());
