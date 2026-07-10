@@ -155,11 +155,16 @@ final class Connection
         $this->send->push($request);
 
         try {
-            $response = $deferred->getFuture()->await($cancellation);
-
-            return $response;
+            return $deferred->getFuture()->await($cancellation);
         } catch (\Throwable $e) {
-            if (!$e instanceof CancelledException) {
+            if ($e instanceof ConnectionClosed) {
+                $this->logger->debug('request aborted by connection close', [
+                    'correlationId' => $id,
+                    'apiKey' => $call->request->apiKey()->name,
+                    'apiVersion' => $requestVersion,
+                    'reason' => $e->getMessage(),
+                ]);
+            } elseif (!$e instanceof CancelledException) {
                 $this->logger->error('receive response error', [
                     'correlationId' => $id,
                     'apiKey' => $call->request->apiKey()->name,

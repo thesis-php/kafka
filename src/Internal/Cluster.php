@@ -286,8 +286,7 @@ final class Cluster implements MetadataProvider
             }
 
             if ($this->controllerId === -1) {
-                $this->logger->warning('controller unavailable, retrying', [
-                    'attempt' => $attempt + 1,
+                $this->logger->warning('no controller elected', [
                     'error' => ErrorCode::NotController->name,
                 ]);
 
@@ -308,17 +307,16 @@ final class Cluster implements MetadataProvider
             // our last metadata refresh and now. Force a refresh and
             // retry again.
             if (Errors::for($response)->has(ErrorCode::NotController)) {
-                $this->logger->warning('controller unavailable, retrying', [
-                    'attempt' => $attempt + 1,
-                    'error' => ErrorCode::NotController->name,
-                ]);
-
                 $this->controllerId = -1;
                 continue;
             }
 
             return $response;
         }
+
+        $this->logger->warning('controller unavailable, retries exhausted', [
+            'error' => ErrorCode::NotController->name,
+        ]);
 
         throw new NoAvailableController('Controller keeps changing, exhausted retries.');
     }
