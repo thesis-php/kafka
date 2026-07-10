@@ -163,6 +163,14 @@ final class GroupConsumer implements Consumer
 
                 // Blocks for the whole generation, returns here to rejoin on rebalance.
                 $session->run($this->queue, $cancellation);
+
+                // Commit the delivered position before rejoining. Without this, a
+                // rebalance would re-deliver everything consumed since the last
+                // periodic commit. Only when autocommit is on, since it commits the
+                // same delivered position the periodic commit does.
+                if ($this->group->autocommit) {
+                    $this->doCommitUncommitted();
+                }
             }
 
             $this->queue->complete();
