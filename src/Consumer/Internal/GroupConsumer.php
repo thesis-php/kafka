@@ -133,8 +133,6 @@ final class GroupConsumer implements Consumer
         if ($this->autocommitId !== null) {
             EventLoop::cancel($this->autocommitId);
             $this->autocommitId = null;
-
-            $this->commitUncommitted();
         }
 
         $this->cancellation->cancel();
