@@ -221,6 +221,17 @@ final readonly class JoinController
 
         $planned = $balancer->assign($members, $partitionCounts);
 
+        $this->logger->debug('computed assignment', [
+            'balancer' => $balancer->name(),
+            'plan' => array_map(
+                static fn(array $partitions) => array_map(
+                    \strval(...),
+                    $partitions,
+                ),
+                $planned,
+            ),
+        ]);
+
         $version = match ($balancer->protocol()) {
             RebalanceProtocol::Eager => 0,
             RebalanceProtocol::Cooperative => 1,
