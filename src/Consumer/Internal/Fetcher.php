@@ -149,9 +149,13 @@ final class Fetcher
         $partitionsByTopic = [];
 
         foreach ($partitions as $tp) {
+            // Send the leader epoch we know. The broker rejects the fetch if
+            // this epoch is older than its own. That protects us from a stale leader.
+            $leaderEpoch = $metadata->topics[$tp->topic]->partitions[$tp->partition]->leaderEpoch ?? -1;
+
             $partitionsByTopic[$tp->topic][] = new Generated\FetchRequest\FetchTopic\FetchPartition(
                 partition: $tp->partition,
-                currentLeaderEpoch: -1,
+                currentLeaderEpoch: $leaderEpoch,
                 fetchOffset: $partitions[$tp],
                 lastFetchedEpoch: -1,
                 logStartOffset: -1,

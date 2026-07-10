@@ -475,6 +475,7 @@ final class Cluster implements MetadataProvider
                     $partitions[$partition->partitionIndex] = new Cluster\Metadata\PartitionMetadata(
                         partition: $partition->partitionIndex,
                         leader: $partition->leaderId,
+                        leaderEpoch: $partition->leaderEpoch,
                         replicas: $partition->replicaNodes,
                         isr: $partition->isrNodes,
                     );

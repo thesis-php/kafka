@@ -161,6 +161,9 @@ final readonly class RecordBatch
                         $record->headers,
                     ),
                     timestamp: $records->firstTimestamp + $record->timestampDelta,
+                    leaderEpoch: $records->partitionLeaderEpoch,
+                    producerId: $records->producerId,
+                    producerEpoch: $records->producerEpoch,
                 ));
             }
         }

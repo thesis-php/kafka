@@ -11,12 +11,14 @@ final readonly class PartitionMetadata
 {
     /**
      * @param int $leader -1 if no leader (mid-election)
+     * @param int $leaderEpoch epoch of the current leader, -1 if unknown
      * @param list<int> $replicas all assigned replicas, leader included
      * @param list<int> $isr in-sync replicas
      */
     public function __construct(
         public int $partition,
         public int $leader,
+        public int $leaderEpoch,
         public array $replicas,
         public array $isr,
     ) {}

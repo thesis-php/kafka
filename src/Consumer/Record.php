@@ -18,6 +18,9 @@ final readonly class Record
      * @param non-negative-int $offset
      * @param list<RecordHeader> $headers
      * @param int $timestamp in milliseconds
+     * @param int $leaderEpoch partition leader epoch of the batch, -1 if unknown
+     * @param int $producerId id of the producer that wrote the batch, -1 if none
+     * @param int $producerEpoch epoch of that producer, -1 if none
      */
     public function __construct(
         public string $topic,
@@ -27,6 +30,9 @@ final readonly class Record
         public ?string $value,
         public array $headers,
         public int $timestamp,
+        public int $leaderEpoch,
+        public int $producerId,
+        public int $producerEpoch,
     ) {}
 
     public function tp(): TopicPartition

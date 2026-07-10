@@ -18,12 +18,13 @@ use Thesis\Kafka\TopicPartition;
 final class OffsetCommitter
 {
     /**
-     * Delivered-but-not-yet-committed position per partition: the next offset to
-     * read (last delivered offset + 1). {@see mark()} advances it as batches are
-     * handed to the caller. A successful commit prunes what it persisted, so it
-     * holds exactly what {@see commitUncommitted()} still needs to send.
+     * Per partition: the next offset to read (last delivered offset + 1) and the
+     * leader epoch we read it under. Delivered to the caller but not yet committed.
+     * {@see mark()} advances it as we hand batches to the caller. A successful
+     * commit removes what it saved, so this map holds only what
+     * {@see commitUncommitted()} still has to send.
      *
-     * @var TopicPartition\Map<non-negative-int>
+     * @var TopicPartition\Map<EpochOffset>
      */
     private TopicPartition\Map $committable;
 
@@ -45,7 +46,10 @@ final class OffsetCommitter
     public function mark(array $batch): void
     {
         foreach (self::offsets($batch)->iter() as $tp => $offset) {
-            $this->committable[$tp] = max($this->committable[$tp] ?? 0, $offset);
+            $current = $this->committable[$tp] ?? null;
+            if ($current === null || $offset->offset > $current->offset) {
+                $this->committable[$tp] = $offset;
+            }
         }
     }
 
@@ -79,7 +83,7 @@ final class OffsetCommitter
             $owned[$tp] = true;
         }
 
-        /** @var TopicPartition\Map<non-negative-int> $offsets */
+        /** @var TopicPartition\Map<EpochOffset> $offsets */
         $offsets = new TopicPartition\Map();
         foreach ($this->committable as $tp) {
             if (isset($owned[$tp])) {
@@ -91,7 +95,7 @@ final class OffsetCommitter
     }
 
     /**
-     * @param TopicPartition\Map<non-negative-int> $offsets
+     * @param TopicPartition\Map<EpochOffset> $offsets
      * @throws Exception
      */
     private function doCommit(TopicPartition\Map $offsets, Membership $membership): void
@@ -107,8 +111,8 @@ final class OffsetCommitter
         foreach ($offsets as $tp) {
             $byTopic[$tp->topic][] = new Generated\OffsetCommitRequest\OffsetCommitRequestTopic\OffsetCommitRequestPartition(
                 partitionIndex: $tp->partition,
-                committedOffset: $offsets[$tp],
-                committedLeaderEpoch: -1,
+                committedOffset: $offsets[$tp]->offset,
+                committedLeaderEpoch: $offsets[$tp]->epoch,
                 committedMetadata: null,
             );
         }
@@ -142,7 +146,7 @@ final class OffsetCommitter
         // resend them. A concurrent delivery may have advanced a partition past
         // what we committed — keep those, they're still pending.
         foreach ($offsets as $tp) {
-            if (isset($this->committable[$tp]) && $this->committable[$tp] <= $offsets[$tp]) {
+            if (isset($this->committable[$tp]) && $this->committable[$tp]->offset <= $offsets[$tp]->offset) {
                 unset($this->committable[$tp]);
             }
         }
@@ -150,16 +154,23 @@ final class OffsetCommitter
 
     /**
      * @param non-empty-list<Consumer\Record> $records
-     * @return TopicPartition\Map<non-negative-int>
+     * @return TopicPartition\Map<EpochOffset>
      */
     private static function offsets(array $records): TopicPartition\Map
     {
-        /** @var TopicPartition\Map<non-negative-int> $offsets */
+        /** @var TopicPartition\Map<EpochOffset> $offsets */
         $offsets = new TopicPartition\Map();
 
         foreach ($records as $record) {
             $tp = $record->tp();
-            $offsets[$tp] = max($offsets[$tp] ?? 0, $record->offset + 1);
+            $next = $record->offset + 1;
+
+            // Keep the highest offset per partition, with the epoch of that
+            // record. The broker fences the commit against this epoch.
+            $current = $offsets[$tp] ?? null;
+            if ($current === null || $next > $current->offset) {
+                $offsets[$tp] = new EpochOffset($record->leaderEpoch, $next);
+            }
         }
 
         return $offsets;
