@@ -150,6 +150,29 @@ final class GroupConsumer implements Consumer
                 $membership = $this->joinController->join($memberId, $cancellation);
                 // The coordinator-assigned id is our identity across rebalances.
                 $memberId = $membership->memberId;
+
+                if ($this->membership !== null) {
+                    $before = [];
+                    foreach ($this->membership->assignments as $tp) {
+                        $before[(string) $tp] = $tp;
+                    }
+
+                    $after = [];
+                    foreach ($membership->assignments as $tp) {
+                        $after[(string) $tp] = $tp;
+                    }
+
+                    $revoked = array_values(array_diff_key($before, $after));
+                    $assigned = array_values(array_diff_key($after, $before));
+
+                    if ($revoked !== [] || $assigned !== []) {
+                        $this->logger->info('assignment changed', [
+                            'revoked' => array_map(\strval(...), $revoked),
+                            'assigned' => array_map(\strval(...), $assigned),
+                        ]);
+                    }
+                }
+
                 $this->membership = $membership;
 
                 $session = new GroupConsumer\GroupSession(

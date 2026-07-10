@@ -63,6 +63,7 @@ final readonly class GroupConsumerFactory
             coordinator: $coordinator,
             group: $group,
             topics: $topics,
+            logger: $logger,
         );
 
         $offsets = new GroupConsumer\OffsetResolver(
@@ -75,6 +76,7 @@ final readonly class GroupConsumerFactory
             ),
             groupId: $group->groupId,
             autoOffsetReset: $config->autoOffsetReset,
+            logger: $logger,
         );
 
         $committer = new GroupConsumer\OffsetCommitter(

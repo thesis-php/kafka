@@ -12,6 +12,7 @@ use Thesis\Kafka\Consumer\GroupMember;
 use Thesis\Kafka\Consumer\RebalanceProtocol;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\Protocol\DataSerializer;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
@@ -33,6 +34,7 @@ final readonly class JoinController
         private Coordinator $coordinator,
         private Consumer\GroupConfig $group,
         private array $topics,
+        private ContextLogger $logger,
         private DataSerializer $data = new DataSerializer(),
     ) {}
 
@@ -84,6 +86,16 @@ final readonly class JoinController
             if (!$errors->empty()) {
                 throw new Exception\ProtocolError($errors);
             }
+
+            $isLeader = $join->leader === $memberId;
+
+            $this->logger->info('joined group', [
+                'generationId' => $join->generationId,
+                'memberId' => $memberId,
+                'protocol' => $sync->protocolName,
+                'role' => $isLeader ? 'leader' : 'follower',
+                'members' => $isLeader ? \count($join->members) : null,
+            ]);
 
             return new Membership(
                 memberId: $memberId,

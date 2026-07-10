@@ -58,7 +58,7 @@ final readonly class GroupSession
             'generationId' => $this->membership->generationId,
             'memberId' => $this->membership->memberId,
             'offsets' => array_map(
-                static fn(TopicPartition $tp) => ["{$tp->topic}/{$tp->partition}" => $offsets[$tp]],
+                static fn(TopicPartition $tp) => [(string) $tp => $offsets[$tp]],
                 $this->membership->assignments,
             ),
         ]);

@@ -10,6 +10,7 @@ use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Consumer\Internal\OffsetLister;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\TopicPartition;
@@ -28,6 +29,7 @@ final readonly class OffsetResolver
         private OffsetLister $lister,
         private string $groupId,
         private Consumer\AutoOffsetReset $autoOffsetReset,
+        private ContextLogger $logger,
     ) {}
 
     /**
@@ -73,6 +75,13 @@ final readonly class OffsetResolver
             // The group never committed these partitions. None forbids inventing
             // a starting position from the log, so fail instead of resetting.
             if ($this->autoOffsetReset === Consumer\AutoOffsetReset::None) {
+                $this->logger->warning('no committed offset and reset is disabled', [
+                    'partitions' => array_map(
+                        \strval(...),
+                        $uncommited,
+                    ),
+                ]);
+
                 throw new Exception\NoOffsetForPartitions($uncommited);
             }
 
@@ -80,6 +89,14 @@ final readonly class OffsetResolver
             foreach ($reset as $tp) {
                 $offsets[$tp] = $reset[$tp];
             }
+
+            $this->logger->notice('no committed offset, resetting', [
+                'reset' => $this->autoOffsetReset->name,
+                'partitions' => array_map(
+                    static fn(TopicPartition $tp) => "{$tp} -> {$reset[$tp]}",
+                    $uncommited,
+                ),
+            ]);
         }
 
         return $offsets;

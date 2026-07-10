@@ -26,7 +26,7 @@ final readonly class TopicPartition implements \Stringable
      */
     public function key(): string
     {
-        return "{$this->topic}-{$this->partition}";
+        return "{$this->topic}/{$this->partition}";
     }
 
     /**
