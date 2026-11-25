@@ -5,13 +5,11 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Compressor;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Exception\UnsupportedCodec;
 
 #[Test]
-#[Covers(Registry::class)]
 final readonly class RegistryTest
 {
     public function none(): void

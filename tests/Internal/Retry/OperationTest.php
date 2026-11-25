@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Internal\Retry;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Data\DataSet;
 use Testo\Test;
 
-#[Covers('Thesis\Kafka\Internal\Retry\backoff')]
 final readonly class OperationTest
 {
     /**

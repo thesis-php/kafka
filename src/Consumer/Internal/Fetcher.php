@@ -85,6 +85,7 @@ final class Fetcher
             } catch (CancelledException $e) {
                 throw $e;
             } catch (\Throwable $exception) {
+                // @infection-ignore-all
                 $this->logger->warning('fetch loop error, refreshing metadata', [
                     'exception' => $exception,
                 ]);
@@ -210,6 +211,7 @@ final class Fetcher
                 // Broker returned a topicId we don't have in metadata — could
                 // be a topic that vanished between our metadata refresh and
                 // this fetch.
+                // @infection-ignore-all
                 $this->logger->warning('received records for unknown topic id, skipping', [
                     'topicId' => $topicResponse->topicId->toString(),
                 ]);
@@ -220,6 +222,7 @@ final class Fetcher
             foreach ($topicResponse->partitions as $partitionResponse) {
                 $error = ErrorCode::from($partitionResponse->errorCode);
                 if ($error !== ErrorCode::None) {
+                    // @infection-ignore-all
                     $this->logger->warning('fetch error for partition', [
                         'topic' => $topic,
                         'partition' => $partitionResponse->partitionIndex,

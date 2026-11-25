@@ -7,7 +7,6 @@ namespace Thesis\Kafka;
 use Amp\Future;
 use Amp\TimeoutCancellation;
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Retry;
 use Testo\Test;
 use Thesis\Kafka\Consumer\AutoOffsetReset;
@@ -16,7 +15,6 @@ use Thesis\Time\TimeSpan;
 use function Amp\async;
 use function Amp\delay;
 
-#[Covers(Consumer\Internal\GroupConsumer::class)]
 #[Retry(maxAttempts: 5, markFlaky: true)]
 final readonly class GroupConsumerTest extends TestCase
 {

@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Consumer\GroupBalancer;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Consumer\GroupMember;
 use Thesis\Kafka\TopicPartition;
 
-#[Covers(RoundRobinGroupBalancer::class)]
 final readonly class RoundRobinGroupBalancerTest
 {
     #[Test]

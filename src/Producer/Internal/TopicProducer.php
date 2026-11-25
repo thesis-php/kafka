@@ -168,6 +168,7 @@ final class TopicProducer
 
         $this->open[$partition] = $open;
 
+        // @infection-ignore-all
         $this->logger->debug('open batch', [
             'partition' => $partition,
             'batchId' => $batchId,
@@ -212,6 +213,7 @@ final class TopicProducer
             return;
         }
 
+        // @infection-ignore-all
         $this->logger->debug('release batch', [
             'partition' => $open->partition,
             'batchId' => $open->id,

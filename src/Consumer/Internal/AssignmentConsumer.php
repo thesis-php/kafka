@@ -216,6 +216,7 @@ final class AssignmentConsumer
                 batch: $this->batch,
                 config: $this->config,
                 queue: $queue,
+                // @infection-ignore-all
                 logger: $this->logger->with([
                     'component' => 'consumer.fetcher',
                     'nodeId' => $leaderId,

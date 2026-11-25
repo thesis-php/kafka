@@ -5,13 +5,11 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Internal;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Internal\Cluster\Metadata\TopicKind;
 use Thesis\Kafka\TestCase;
 
-#[Covers(Cluster::class)]
 final readonly class ClusterTest extends TestCase
 {
     #[Test]

@@ -70,6 +70,7 @@ final class IdempotencyCoordinator
         try {
             $idempotency = $this->requestProducerId($cancellation);
             $this->idempotency = $idempotency;
+            // @infection-ignore-all
             $this->logger->info('producer id obtained', [
                 'producerId' => $idempotency->producerId,
                 'producerEpoch' => $idempotency->producerEpoch,
@@ -79,6 +80,7 @@ final class IdempotencyCoordinator
 
             return $idempotency;
         } catch (\Throwable $e) {
+            // @infection-ignore-all
             $this->logger->critical('failed to obtain producer id', [
                 'exception' => $e,
             ]);
@@ -129,6 +131,7 @@ final class IdempotencyCoordinator
             cancellation: $cancellation,
             retry: new Retry\Operation(
                 static fn(Generated\InitProducerIdResponse $response): ErrorCode => ErrorCode::from($response->errorCode),
+                // @infection-ignore-all
                 logger: $this->logger->with([
                     'component' => 'retry',
                     'operation' => 'initProducerId',

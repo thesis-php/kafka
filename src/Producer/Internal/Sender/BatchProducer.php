@@ -45,6 +45,7 @@ final readonly class BatchProducer
                     $cancellation,
                 );
 
+                // @infection-ignore-all
                 $this->logger->debug('producing batch', [
                     'topic' => $batch->topic,
                     'partition' => $batch->partition,
@@ -78,6 +79,7 @@ final readonly class BatchProducer
                         timestamp: $partition->logAppendTimeMs, // @phpstan-ignore argument.type
                     );
 
+                    // @infection-ignore-all
                     $this->logger->debug('batch acknowledged', [
                         'topic' => $batch->topic,
                         'partition' => $batch->partition,
@@ -88,6 +90,7 @@ final readonly class BatchProducer
                 }
 
                 if (!$error->retriable() || $attempt >= $this->config->produceAttempts) {
+                    // @infection-ignore-all
                     $this->logger->error('produce failed permanently', [
                         'topic' => $batch->topic,
                         'partition' => $batch->partition,
@@ -102,6 +105,7 @@ final readonly class BatchProducer
                     return;
                 }
 
+                // @infection-ignore-all
                 $this->logger->warning('produce failed, retrying', [
                     'topic' => $batch->topic,
                     'partition' => $batch->partition,
@@ -113,6 +117,7 @@ final readonly class BatchProducer
                 $this->cluster->refreshMetadata([$batch->topic], $cancellation);
             } catch (\Throwable $e) {
                 if ($attempt >= $this->config->produceAttempts) {
+                    // @infection-ignore-all
                     $this->logger->error('produce failed permanently', [
                         'topic' => $batch->topic,
                         'partition' => $batch->partition,
@@ -124,6 +129,7 @@ final readonly class BatchProducer
                     return;
                 }
 
+                // @infection-ignore-all
                 $this->logger->warning('produce failed, retrying', [
                     'topic' => $batch->topic,
                     'partition' => $batch->partition,

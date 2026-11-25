@@ -5,13 +5,11 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Producer;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Exception\InvalidConfiguration;
 use Thesis\Time\TimeSpan;
 
-#[Covers(Config::class)]
 final readonly class ConfigTest
 {
     #[Test]

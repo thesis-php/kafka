@@ -61,6 +61,7 @@ final readonly class ConnectionFactory
             $socket,
             $this->config,
             $endpoint,
+            // @infection-ignore-all
             $this->logger->with([
                 'component' => 'connection',
                 'host' => $endpoint->host,
@@ -73,6 +74,7 @@ final readonly class ConnectionFactory
         try {
             $connection->authenticate($cancellation);
         } catch (\Throwable $e) {
+            // @infection-ignore-all
             $this->logger->error('authentication failed', [
                 'host' => $endpoint->host,
                 'port' => $endpoint->port,

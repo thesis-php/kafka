@@ -33,8 +33,9 @@ escaped mutants in each area. We need these numbers to plan the next tasks.
 Remove the `#[Covers]` attributes from the tests, so that coverage includes
 every line a test runs.
 
-Change the Infection config so that it does not mutate generated protocol code
-and does not report mutants in logging code.
+Change the Infection config so that it does not mutate generated protocol
+code. Mark the logging code in `src/` so that Infection does not report
+mutants in it.
 
 Run Infection on the whole project and set `minCoveredMsi` to the real level.
 The threshold must pass in a normal run. It is raised in later tasks.
@@ -48,20 +49,28 @@ Do not kill mutants in this task. This task only sets the scope and measures.
 - `#[Covers]` is removed from all test classes. New tests do not use it.
 - `src/Protocol/Generated/` is excluded from Infection. The goal of 100% MSI
   is about hand-written code.
-- Mutants in logging code are ignored in the config, with a comment that gives
-  the reason. Tests do not check log messages or log context. This covers the
-  logger calls and the context arrays passed to them, also when the array is
-  on other lines than the call, and the context of `ContextLogger::with()`.
-  Infection has a `global-ignoreSourceCodeByRegex` setting, but it matches one
-  source line. If the config cannot ignore a whole multi-line call, stop and
-  report it. Do not change the code style of logger calls to make it work.
+- Mutants in logging code are ignored with a `// @infection-ignore-all`
+  comment in `src/`, placed directly before each logger call. Tests do not
+  check log messages or log context. This covers the logger calls and the
+  context arrays passed to them, also when the array is on other lines than
+  the call, and the context of `ContextLogger::with()`. The config cannot do
+  this: `global-ignoreSourceCodeByRegex` matches only the changed line of a
+  mutant, so it does not see the context lines of a multi-line call.
+- The comment must ignore only the logging code. When a logger call is a part
+  of a bigger statement (for example the argument
+  `logger: $this->logger->with([...])`), the comment goes before that part,
+  not before the whole statement. If this is not possible for some call, stop
+  and report it. Do not change the code style of logger calls to make it work.
+- The reason for the ignore is written once, in the "Mutation testing" section
+  of `AGENTS.md`. It is not repeated at each call.
 - No other mutator is disabled and no other code is ignored.
 - `minCoveredMsi` is set a few points below the lowest MSI of three full
   runs. Mutants killed by a timeout change from run to run, so the threshold
   needs this margin.
 - In `AGENTS.md`: the rule "Add `#[Covers]`" becomes "Do not add `#[Covers]`",
   with the reason. The "Mutation testing" section says that generated code is
-  excluded and logging code is ignored.
+  excluded and logging code is ignored, and why. The "Logging" section says
+  that every new logger call gets the `// @infection-ignore-all` comment.
 
 ## Tests
 
@@ -76,7 +85,7 @@ No new tests. Check the result with these runs:
 
 - [ ] No test class has `#[Covers]`.
 - [ ] Infection does not create mutants for `src/Protocol/Generated/`.
-- [ ] Infection does not report mutants in logging code. The config explains
+- [ ] Infection does not report mutants in logging code. `AGENTS.md` explains
       why.
 - [ ] `minCoveredMsi` is set from three measured runs, and `make infect`
       passes.

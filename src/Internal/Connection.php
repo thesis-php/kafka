@@ -158,6 +158,7 @@ final class Connection
             return $deferred->getFuture()->await($cancellation);
         } catch (\Throwable $e) {
             if ($e instanceof ConnectionClosed) {
+                // @infection-ignore-all
                 $this->logger->debug('request aborted by connection close', [
                     'correlationId' => $id,
                     'apiKey' => $call->request->apiKey()->name,
@@ -165,6 +166,7 @@ final class Connection
                     'reason' => $e->getMessage(),
                 ]);
             } elseif (!$e instanceof CancelledException) {
+                // @infection-ignore-all
                 $this->logger->error('receive response error', [
                     'correlationId' => $id,
                     'apiKey' => $call->request->apiKey()->name,
@@ -272,6 +274,7 @@ final class Connection
             $error = ErrorCode::from($response->errorCode);
             if ($error === ErrorCode::None) {
                 $this->doSaslAuthenticate($authenticator, $cancellation);
+                // @infection-ignore-all
                 $this->logger->info('authenticated', [
                     'mechanism' => $authenticator->mechanism(),
                 ]);
