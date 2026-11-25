@@ -10,68 +10,61 @@ use Testo\Test;
 use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\AllBrokersFailed;
 use Thesis\Kafka\SASL\Scram\Sha256ScramAuthenticator;
+use Thesis\Kafka\Testing\Kafka;
 
-final readonly class ScramSha256SaslAuthenticationTest extends TestCase
+final readonly class ScramSha256SaslAuthenticationTest
 {
+    private const string BROKER = 'kafka-scram-256-standalone:9092';
+
     #[Test]
     public function metadataWithoutSaslClosesConnection(): void
     {
-        $client = $this->createScramClient();
+        Kafka::connect(self::BROKER)->test(static function (Kafka $kafka): void {
+            Expect::exception(AllBrokersFailed::class)
+                ->fromMethod(Client::class, 'request')
+                ->withMessageContaining('Connection closed by the broker');
 
-        Expect::exception(AllBrokersFailed::class)
-            ->fromMethod(Client::class, 'request')
-            ->withMessageContaining('Connection closed by the broker');
-
-        $client->request($this->metadataRequest());
+            $kafka->client->request(Kafka::metadataRequest());
+        });
     }
 
     #[Test]
     public function metadataWithScramSha256Succeeds(): void
     {
-        $client = $this->createScramClient(
-            new SASLConfig([
+        Kafka::connect(self::BROKER)
+            ->sasl(new SASLConfig([
                 new Sha256ScramAuthenticator(
                     username: 'test',
                     password: 'test-secret',
                 ),
-            ]),
-        );
+            ]))
+            ->test(static function (Kafka $kafka): void {
+                $response = $kafka->client->request(Kafka::metadataRequest());
 
-        $response = $client->request($this->metadataRequest());
-
-        Assert::same($response->errorCode, 0);
-        Assert::count($response->brokers, 1);
-        \assert(\count($response->brokers) > 0);
-        Assert::same($response->brokers[0]->host, 'kafka-scram-256-standalone');
-        Assert::same($response->brokers[0]->port, 9092);
-
-        $client->close();
+                Assert::same($response->errorCode, 0);
+                Assert::count($response->brokers, 1);
+                \assert(\count($response->brokers) > 0);
+                Assert::same($response->brokers[0]->host, 'kafka-scram-256-standalone');
+                Assert::same($response->brokers[0]->port, 9092);
+            });
     }
 
     #[Test]
     public function metadataWithWrongScramSha256PasswordFailsAuthentication(): void
     {
-        $client = $this->createScramClient(
-            new SASLConfig([
+        Kafka::connect(self::BROKER)
+            ->sasl(new SASLConfig([
                 new Sha256ScramAuthenticator(
                     username: 'test',
                     password: 'wrong-secret',
                 ),
-            ]),
-        );
+            ]))
+            ->test(static function (Kafka $kafka): void {
+                Expect::exception(AllBrokersFailed::class)
+                    ->fromMethod(Client::class, 'request')
+                    ->withMessageContaining('Authentication failed during authentication due to invalid credentials with SASL mechanism SCRAM-SHA-256');
 
-        Expect::exception(AllBrokersFailed::class)
-            ->fromMethod(Client::class, 'request')
-            ->withMessageContaining('Authentication failed during authentication due to invalid credentials with SASL mechanism SCRAM-SHA-256');
-
-        $client->request($this->metadataRequest());
-    }
-
-    private function createScramClient(?SASLConfig $sasl = null): Client
-    {
-        return $this->createClient(
-            seeds: ['kafka-scram-256-standalone:9092'],
-            sasl: $sasl,
-        );
+                $kafka->client->request(Kafka::metadataRequest());
+            });
     }
 }

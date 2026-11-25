@@ -156,19 +156,62 @@ Notes:
   hooks to `src/`.
 - Do not write unit tests for internal classes. If internal code cannot be
   reached through the public API, it is probably dead code. Delete it.
-- A test class is `final readonly`, extends `Thesis\Kafka\TestCase`, and marks
-  methods with `#[Test]`.
+- A test class is `final readonly`, has no parent class, and marks methods
+  with `#[Test]`.
 - Do not add `#[Covers]`. Testo collects coverage only for the classes named in
   it. Infection mutates only covered lines, so the attribute hides code from
   mutation testing.
 - Tests that depend on broker timing get
   `#[Retry(maxAttempts: 5, markFlaky: true)]`. Do not use retry to hide a real
   bug.
-- Each test creates its own topic with `createTopic()` and waits for it with
-  `waitUntilTopicVisible()`. Use a unique group id per test. Tests must not
-  depend on each other or on the run order.
-- Clean up at the end: delete the topic, close the producer, the consumer and
-  the client.
+- A test that talks to a broker uses the test kit `Thesis\Kafka\Testing\Kafka`
+  (`tests/Testing/`). The test gives its scenario to the kit as a closure:
+
+  ```php
+  #[Test]
+  public function readAfterCommit(): void
+  {
+      Kafka::test(static function (Kafka $kafka): void {
+          $topic = $kafka->topic(partitions: 2);
+          $producer = $kafka->producer();
+          $consumer = $kafka->groupConsumer($topic);
+
+          $producer->produceSync([...]);
+          $records = $kafka->consume($consumer, count: 4);
+
+          Assert::count($records, 4);
+      });
+  }
+  ```
+
+- `Kafka::test()` runs on the main test cluster. For another broker or other
+  settings, use a chain before `test()`:
+  `Kafka::connect('kafka-plain-standalone:9092')->sasl($sasl)->timeout($limit)->test(...)`.
+  A test of the main cluster does not write broker addresses.
+- Ask the kit for everything: `topic()`, `producer()`, `directConsumer()`,
+  `groupConsumer()`, `subscribe()`, and `$kafka->client` for raw requests.
+  Tests of the internal cluster and connection use `cluster()` and
+  `connection()`. `topic()` returns only when every broker sees the topic with
+  a leader for each partition. Do not wait for it again.
+- When the closure ends, the kit closes every client it gave and deletes every
+  topic it created. It does this also when the closure fails or runs out of
+  time. Do not close clients and do not delete topics at the end of a test.
+  The exception of the closure leaves `test()` unchanged, so
+  `Expect::exception()` works.
+- A topic that the scenario creates with a raw request gets its name from
+  `$kafka->topicName()`. The kit deletes it at the end. Wait for such a topic
+  with `$kafka->waitUntilTopicReady()`. Use `$kafka->deleteTopic()` only when
+  the deletion is a part of the scenario.
+- Every wait has a time limit. Read records with `$kafka->consume()`. Wait for
+  any other condition with `$kafka->poll($probe)->until($condition)`. Optional
+  steps before `until()`: `expecting()`, `within()`, `describedBy()`. Do not write your own wait
+  loop, and do not use `usleep()` or `sleep()`: they block the event loop.
+- The whole scenario has a time limit of 60 seconds by default. A scenario
+  that runs longer fails with a message that names the limit.
+- Do not copy kit helpers into test classes. If a test needs a new helper that
+  other tests can use too, add it to the kit.
+- Use a unique group id per test (`$kafka->groupId()` or the default of
+  `groupConsumer()`). Tests must not depend on each other or on the run order.
 - Assert with `Testo\Assert`. Assert real values (topic, partition, offset,
   record value), not only "no exception".
 - Test failure paths too: broker errors, rebalances, fencing, closed
