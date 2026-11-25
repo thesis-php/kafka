@@ -176,6 +176,14 @@ Update `AGENTS.md` ("How to write tests") to describe the new way.
   way to write a test.
 - The scenarios and the assertions of the existing tests do not change. Only
   the setup, the waits and the cleanup change.
+- One exception, agreed during the implementation:
+  `PlainSaslReauthenticationTest::closesConnectionIfExpiredSessionBypassesRefresh`
+  checks the message of `ConnectionClosed` in place of the method in its
+  stack trace. The scenario runs in its own fiber because of the time limit,
+  and the stack trace is different there.
+- `Producer\Internal\AsyncProducer::close()` becomes idempotent, as the
+  `Producer::close()` contract says. The kit closes a producer that the
+  scenario already closed, and the second call failed before.
 
 ## Tests
 

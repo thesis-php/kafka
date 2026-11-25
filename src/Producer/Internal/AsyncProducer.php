@@ -53,6 +53,8 @@ final class AsyncProducer implements Producer
 
     private readonly Sender $sender;
 
+    private bool $closed = false;
+
     public function __construct(
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
@@ -121,6 +123,12 @@ final class AsyncProducer implements Producer
     #[\Override]
     public function close(): void
     {
+        if ($this->closed) {
+            return;
+        }
+
+        $this->closed = true;
+
         // @infection-ignore-all
         $this->logger->info('close producer', [
             'producers' => \count($this->producers),

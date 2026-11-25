@@ -4,107 +4,86 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka;
 
-use Amp\NullCancellation;
 use Testo\Assert;
 use Testo\Expect;
 use Testo\Test;
-use Thesis\Kafka\Config\Endpoint;
 use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\ConnectionClosed;
 use Thesis\Kafka\Internal\Connection;
-use Thesis\Kafka\Internal\ConnectionFactory;
-use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\Time;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
+use Thesis\Kafka\Testing\Kafka;
+use Thesis\Kafka\Testing\Setup;
 use function Amp\delay;
 
-final readonly class PlainSaslReauthenticationTest extends TestCase
+final readonly class PlainSaslReauthenticationTest
 {
     #[Test]
     public function reauthenticatesBeforeOrdinaryRequestWhenSessionExpired(): void
     {
-        $factory = new ConnectionFactory(
-            new Config(
-                seeds: ['kafka-plain-reauth-standalone:9092'],
-                sasl: new SASLConfig([
-                    new PlainAuthenticator(
-                        username: 'broker',
-                        password: 'broker-secret',
-                    ),
-                ]),
-            ),
-            ContextLogger::null(),
-        );
+        self::broker()->test(static function (Kafka $kafka): void {
+            $connection = $kafka->connection();
 
-        $connection = $factory->open(
-            Endpoint::parse('kafka-plain-reauth-standalone:9092'),
-            new NullCancellation(),
-        );
+            $initialExpiry = self::sessionExpires($connection);
 
-        $initialExpiry = $this->sessionExpires($connection);
+            Assert::int($initialExpiry)->greaterThan(Time\now()->milliseconds);
 
-        Assert::int($initialExpiry)->greaterThan(Time\now()->milliseconds);
+            /** @var non-negative-int $expiredAt */
+            $expiredAt = Time\now()->milliseconds - 1;
+            self::forceSessionExpires($connection, $expiredAt);
 
-        /** @var non-negative-int $expiredAt */
-        $expiredAt = Time\now()->milliseconds - 1;
-        $this->forceSessionExpires($connection, $expiredAt);
+            $response = $connection->call(
+                new Connection\Call(
+                    request: Kafka::metadataRequest(),
+                ),
+            );
 
-        $response = $connection->call(
-            new Connection\Call(
-                request: $this->metadataRequest(),
-            ),
-        );
+            Assert::same($response->errorCode, 0);
+            Assert::count($response->brokers, 1);
 
-        Assert::same($response->errorCode, 0);
-        Assert::count($response->brokers, 1);
+            $refreshedExpiry = self::sessionExpires($connection);
 
-        $refreshedExpiry = $this->sessionExpires($connection);
-
-        Assert::int($refreshedExpiry)->greaterThan(Time\now()->milliseconds);
-        Assert::int($refreshedExpiry)->greaterThan($expiredAt);
-
-        $connection->close();
+            Assert::int($refreshedExpiry)->greaterThan(Time\now()->milliseconds);
+            Assert::int($refreshedExpiry)->greaterThan($expiredAt);
+        });
     }
 
     #[Test]
     public function closesConnectionIfExpiredSessionBypassesRefresh(): void
     {
-        $factory = new ConnectionFactory(
-            new Config(
-                seeds: ['kafka-plain-reauth-standalone:9092'],
-                sasl: new SASLConfig([
-                    new PlainAuthenticator(
-                        username: 'broker',
-                        password: 'broker-secret',
-                    ),
-                ]),
-            ),
-            ContextLogger::null(),
-        );
+        self::broker()->test(static function (Kafka $kafka): void {
+            $connection = $kafka->connection();
 
-        $connection = $factory->open(
-            Endpoint::parse('kafka-plain-reauth-standalone:9092'),
-            new NullCancellation(),
-        );
+            self::forceSessionExpires($connection, null);
 
-        $this->forceSessionExpires($connection, null);
+            delay(2.5);
 
-        delay(2.5);
+            Expect::exception(ConnectionClosed::class)
+                ->withMessageContaining('Connection closed by the broker');
 
-        Expect::exception(ConnectionClosed::class)
-            ->fromMethod(Connection::class, 'call');
-
-        $connection->call(
-            new Connection\Call(
-                request: $this->metadataRequest(),
-            ),
-        );
+            $connection->call(
+                new Connection\Call(
+                    request: Kafka::metadataRequest(),
+                ),
+            );
+        });
     }
 
-    private function sessionExpires(Connection $connection): int
+    private static function broker(): Setup
+    {
+        return Kafka::connect('kafka-plain-reauth-standalone:9092')
+            ->sasl(new SASLConfig([
+                new PlainAuthenticator(
+                    username: 'broker',
+                    password: 'broker-secret',
+                ),
+            ]));
+    }
+
+    private static function sessionExpires(Connection $connection): int
     {
         /** @var ?Time\Duration $expires */
-        $expires = $this->sessionExpiresProperty()->getValue($connection);
+        $expires = self::sessionExpiresProperty()->getValue($connection);
         \assert($expires !== null);
 
         return $expires->milliseconds;
@@ -113,15 +92,15 @@ final readonly class PlainSaslReauthenticationTest extends TestCase
     /**
      * @param ?non-negative-int $expiresMs
      */
-    private function forceSessionExpires(Connection $connection, ?int $expiresMs): void
+    private static function forceSessionExpires(Connection $connection, ?int $expiresMs): void
     {
-        $this->sessionExpiresProperty()->setValue(
+        self::sessionExpiresProperty()->setValue(
             $connection,
             $expiresMs === null ? null : new Time\Duration($expiresMs),
         );
     }
 
-    private function sessionExpiresProperty(): \ReflectionProperty
+    private static function sessionExpiresProperty(): \ReflectionProperty
     {
         return new \ReflectionProperty(Connection::class, 'sessionExpires');
     }

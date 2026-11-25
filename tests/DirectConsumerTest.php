@@ -12,237 +12,196 @@ use Testo\Test;
 use Thesis\Kafka\Consumer\AutoOffsetReset;
 use Thesis\Kafka\Consumer\ConsumeMode;
 use Thesis\Kafka\Exception\ConsumerBusy;
+use Thesis\Kafka\Testing\Kafka;
 use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 #[Retry(maxAttempts: 5, markFlaky: true)]
-final readonly class DirectConsumerTest extends TestCase
+final readonly class DirectConsumerTest
 {
     #[Test]
     public function earliestConsumesMessagesProducedEarlier(): void
     {
-        $client = $this->createClient();
-        $topic = $this->createTopic($client, prefix: 'thesis-consumer');
-        $this->waitUntilTopicVisible($client, $topic);
+        Kafka::test(static function (Kafka $kafka): void {
+            $topic = $kafka->topic();
+            $producer = $kafka->producer();
 
-        $producer = $client->createProducer();
-        $produced = $producer->produceSync([
-            new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
-            new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
-        ]);
+            $produced = $producer->produceSync([
+                new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
+                new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
+            ]);
 
-        \assert(\count($produced) === 2);
+            \assert(\count($produced) === 2);
 
-        Assert::same($produced[0]->offset, 0);
-        Assert::same($produced[1]->offset, 1);
+            Assert::same($produced[0]->offset, 0);
+            Assert::same($produced[1]->offset, 1);
 
-        $consumer = $client->createConsumer($topic, new Consumer\Config(
-            autoOffsetReset: AutoOffsetReset::Earliest,
-        ));
+            $consumer = $kafka->directConsumer($topic, new Consumer\Config(
+                autoOffsetReset: AutoOffsetReset::Earliest,
+            ));
 
-        $records = $this->consumeUntilCount($consumer, 2);
-        \assert(\count($records) === 2);
+            $records = $kafka->consume($consumer, count: 2);
+            \assert(\count($records) === 2);
 
-        Assert::count($records, 2);
-        Assert::same($records[0]->value, 'old-0');
-        Assert::same($records[1]->value, 'old-1');
-        Assert::same($records[0]->offset, 0);
-        Assert::same($records[1]->offset, 1);
-
-        $consumer->close();
-        $producer->close();
-        $this->deleteTopic($client, $topic);
-        $client->close();
+            Assert::count($records, 2);
+            Assert::same($records[0]->value, 'old-0');
+            Assert::same($records[1]->value, 'old-1');
+            Assert::same($records[0]->offset, 0);
+            Assert::same($records[1]->offset, 1);
+        });
     }
 
     #[Test]
     public function latestConsumesOnlyMessagesProducedAfterStart(): void
     {
-        $client = $this->createClient();
-        $topic = $this->createTopic($client, prefix: 'thesis-consumer');
-        $this->waitUntilTopicVisible($client, $topic);
+        Kafka::test(static function (Kafka $kafka): void {
+            $topic = $kafka->topic();
+            $producer = $kafka->producer();
 
-        $producer = $client->createProducer();
-        $old = $producer->produceSync([
-            new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
-            new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
-        ]);
+            $old = $producer->produceSync([
+                new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
+                new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
+            ]);
 
-        \assert(\count($old) === 2);
+            \assert(\count($old) === 2);
 
-        Assert::same($old[0]->offset, 0);
-        Assert::same($old[1]->offset, 1);
+            Assert::same($old[0]->offset, 0);
+            Assert::same($old[1]->offset, 1);
 
-        $consumer = $client->createConsumer($topic, new Consumer\Config(
-            autoOffsetReset: AutoOffsetReset::Latest,
-        ));
+            $consumer = $kafka->directConsumer($topic, new Consumer\Config(
+                autoOffsetReset: AutoOffsetReset::Latest,
+            ));
 
-        $firstPoll = iterator_to_array(
-            $consumer->consume(
-                ConsumeMode::Poll,
-                new TimeoutCancellation(0.2),
-            ),
-            false,
-        );
+            $firstPoll = iterator_to_array(
+                $consumer->consume(
+                    ConsumeMode::Poll,
+                    new TimeoutCancellation(0.2),
+                ),
+                false,
+            );
 
-        Assert::same($firstPoll, []);
+            Assert::same($firstPoll, []);
 
-        $new = $producer->produceSync([
-            new Producer\Record(value: 'new-0', topic: $topic, partition: 0),
-            new Producer\Record(value: 'new-1', topic: $topic, partition: 0),
-        ]);
+            $new = $producer->produceSync([
+                new Producer\Record(value: 'new-0', topic: $topic, partition: 0),
+                new Producer\Record(value: 'new-1', topic: $topic, partition: 0),
+            ]);
 
-        \assert(\count($new) === 2);
+            \assert(\count($new) === 2);
 
-        Assert::same($new[0]->offset, 2);
-        Assert::same($new[1]->offset, 3);
+            Assert::same($new[0]->offset, 2);
+            Assert::same($new[1]->offset, 3);
 
-        $records = $this->consumeUntilCount($consumer, 2);
-        \assert(\count($records) === 2);
+            $records = $kafka->consume($consumer, count: 2);
+            \assert(\count($records) === 2);
 
-        Assert::count($records, 2);
-        Assert::same($records[0]->value, 'new-0');
-        Assert::same($records[1]->value, 'new-1');
-        Assert::same($records[0]->offset, 2);
-        Assert::same($records[1]->offset, 3);
-
-        $consumer->close();
-        $producer->close();
-        $this->deleteTopic($client, $topic);
-        $client->close();
+            Assert::count($records, 2);
+            Assert::same($records[0]->value, 'new-0');
+            Assert::same($records[1]->value, 'new-1');
+            Assert::same($records[0]->offset, 2);
+            Assert::same($records[1]->offset, 3);
+        });
     }
 
     #[Test]
     public function concurrentConsumeThrowsConsumerBusy(): void
     {
-        $client = $this->createClient();
-        $topic = $this->createTopic($client, prefix: 'thesis-consumer');
-        $this->waitUntilTopicVisible($client, $topic);
+        Kafka::test(static function (Kafka $kafka): void {
+            $topic = $kafka->topic();
 
-        $consumer = $client->createConsumer($topic, new Consumer\Config(
-            autoOffsetReset: AutoOffsetReset::Latest,
-        ));
+            $consumer = $kafka->directConsumer($topic, new Consumer\Config(
+                autoOffsetReset: AutoOffsetReset::Latest,
+            ));
 
-        $futures = [];
-        $futures[] = async($consumer->consume(...));
-        $futures[] = async($consumer->consume(...));
+            $futures = [];
+            $futures[] = async($consumer->consume(...));
+            $futures[] = async($consumer->consume(...));
 
-        try {
-            Future\await($futures);
+            try {
+                Future\await($futures);
 
-            Assert::fail('Expected ConsumerBusy to be thrown.');
-        } catch (ConsumerBusy) {
-            $consumer->close();
-        } finally {
-            $this->deleteTopic($client, $topic);
-            $client->close();
-        }
+                Assert::fail('Expected ConsumerBusy to be thrown.');
+            } catch (ConsumerBusy $e) {
+                Assert::same(
+                    $e->getMessage(),
+                    'consume() is already running on this consumer; only one consume() loop may be active at a time.',
+                );
+            }
+        });
     }
 
     #[Test]
     public function callbackConsumeProcessesRecords(): void
     {
-        $client = $this->createClient();
-        $topic = $this->createTopic($client, prefix: 'thesis-consumer');
-        $this->waitUntilTopicVisible($client, $topic);
+        Kafka::test(static function (Kafka $kafka): void {
+            $topic = $kafka->topic();
+            $producer = $kafka->producer();
 
-        $producer = $client->createProducer();
-        $produced = $producer->produceSync([
-            new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
-            new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
-        ]);
+            $produced = $producer->produceSync([
+                new Producer\Record(value: 'old-0', topic: $topic, partition: 0),
+                new Producer\Record(value: 'old-1', topic: $topic, partition: 0),
+            ]);
 
-        \assert(\count($produced) === 2);
+            \assert(\count($produced) === 2);
 
-        $seen = [];
+            $seen = [];
 
-        $subscription = $client->consume(
-            $topic,
-            static function (array $records, ConsumerSession $session) use (&$seen): void {
-                foreach ($records as $record) {
-                    $seen[] = $record;
-                }
+            $subscription = $kafka->subscribe(
+                $topic,
+                static function (array $records, ConsumerSession $session) use (&$seen): void {
+                    foreach ($records as $record) {
+                        $seen[] = $record;
+                    }
 
-                if (\count($seen) >= 2) {
-                    $session->close();
-                }
-            },
-        );
+                    if (\count($seen) >= 2) {
+                        $session->close();
+                    }
+                },
+            );
 
-        $subscription->join();
+            $subscription->join();
 
-        \assert(\count($seen) === 2);
+            \assert(\count($seen) === 2);
 
-        Assert::count($seen, 2);
-        Assert::same($seen[0]->value, 'old-0');
-        Assert::same($seen[1]->value, 'old-1');
-        Assert::same($seen[0]->offset, 0);
-        Assert::same($seen[1]->offset, 1);
-
-        $producer->close();
-        $this->deleteTopic($client, $topic);
-        $client->close();
+            Assert::count($seen, 2);
+            Assert::same($seen[0]->value, 'old-0');
+            Assert::same($seen[1]->value, 'old-1');
+            Assert::same($seen[0]->offset, 0);
+            Assert::same($seen[1]->offset, 1);
+        });
     }
 
     #[Test]
     public function callbackConsumeJoinRethrowsHandlerFailure(): void
     {
-        $client = $this->createClient();
-        $topic = $this->createTopic($client, prefix: 'thesis-consumer');
-        $this->waitUntilTopicVisible($client, $topic);
+        Kafka::test(static function (Kafka $kafka): void {
+            $topic = $kafka->topic();
+            $producer = $kafka->producer();
 
-        $producer = $client->createProducer();
-        $producer->produceSync(new Producer\Record(
-            value: 'boom',
-            topic: $topic,
-            partition: 0,
-        ));
+            $producer->produceSync(new Producer\Record(
+                value: 'boom',
+                topic: $topic,
+                partition: 0,
+            ));
 
-        $subscription = $client->consume(
-            $topic,
-            static function (): void {
-                throw new \RuntimeException('handler boom');
-            },
-            new Consumer\Config(
-                maxWait: TimeSpan::fromMilliseconds(1),
-                maxBytes: 20,
-            ),
-        );
-
-        try {
-            $subscription->join();
-
-            Assert::fail('Expected join() to rethrow the handler failure.');
-        } catch (\RuntimeException $e) {
-            Assert::same($e->getMessage(), 'handler boom');
-        } finally {
-            $producer->close();
-            $this->deleteTopic($client, $topic);
-            $client->close();
-        }
-    }
-
-    /**
-     * @param positive-int $expected
-     * @return list<Consumer\Record>
-     */
-    private function consumeUntilCount(Consumer $consumer, int $expected): array
-    {
-        $records = [];
-
-        for ($attempt = 0; $attempt < 10 && \count($records) < $expected; ++$attempt) {
-            $batches = $consumer->consume(
-                ConsumeMode::Poll,
-                new TimeoutCancellation(0.5),
+            $subscription = $kafka->subscribe(
+                $topic,
+                static function (): void {
+                    throw new \RuntimeException('handler boom');
+                },
+                new Consumer\Config(
+                    maxWait: TimeSpan::fromMilliseconds(1),
+                    maxBytes: 20,
+                ),
             );
 
-            foreach ($batches as $batch) {
-                foreach ($batch as $record) {
-                    $records[] = $record;
-                }
-            }
-        }
+            try {
+                $subscription->join();
 
-        return $records;
+                Assert::fail('Expected join() to rethrow the handler failure.');
+            } catch (\RuntimeException $e) {
+                Assert::same($e->getMessage(), 'handler boom');
+            }
+        });
     }
 }
