@@ -62,6 +62,7 @@ One line per task, in the order of work:
 - [ ] 034 Consumer position and partition selection
 - [ ] 035 New partitions of a topic
 - [ ] 036 Release preparation
+- [ ] [037 Test topic leak](037-test-topic-leak.md)
 
 ## Deferred to 0.2.x
 
