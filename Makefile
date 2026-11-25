@@ -141,8 +141,13 @@ test: var vendor up-test-services ## Run tests using Testo
 	$(RUN) vendor/bin/testo $(ARGS)
 .PHONY: test
 
-infect: var vendor up-test-services ## Run mutation tests using Infection
-	$(RUN) infection --show-mutations $(ARGS)
+# Infection is not in the php image. It is installed with the Testo adapter from tools/infection/composer.json.
+tools/infection/vendor: tools/infection/composer.json
+	$(COMPOSER) --working-dir=tools/infection --no-interaction install
+	@touch tools/infection/vendor
+
+infect: var vendor tools/infection/vendor up-test-services ## Run mutation tests using Infection
+	$(RUN) php -d memory_limit=2G tools/infection/vendor/bin/infection --show-mutations $(ARGS)
 .PHONY: infect
 
 deps-analyze: vendor ## Analyze project dependencies using Composer dependency analyser

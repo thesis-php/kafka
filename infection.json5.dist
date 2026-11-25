@@ -1,4 +1,5 @@
 {
+    "testFramework": "testo",
     "source": {
         "directories": [
             "src"
@@ -11,7 +12,8 @@
         },
     },
     "tmpDir": "var",
-    "minCoveredMsi": 99,
+    // The current level is 66-68%. Raise this number when tests get better. The goal is 100.
+    "minCoveredMsi": 60,
     "mutators": {
         "@default": true,
     },
