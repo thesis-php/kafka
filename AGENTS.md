@@ -306,8 +306,11 @@ Do not mark a task as done before its work is committed.
 - When the user asks to commit, also push the branch and give the user the
   link to the pull request. If there is no pull request yet, give the link
   that opens a new one against the base branch:
-  `https://github.com/thesis-php/kafka/compare/<base>...<branch>?expand=1`.
-  Never push to a base branch directly.
+  `https://github.com/thesis-php/kafka/compare/<base>...<branch>?expand=1&title=<title>`.
+  The title of a pull request has the same form as a commit subject, for
+  example `feat: transactional producer (001)`. Put it into the link,
+  URL-encoded. Without it GitHub makes the title from the branch name.
+  Do not push to a base branch unless the user asks for it.
 - Commit messages follow the existing history: `chore: short description`,
   `fix: ...`, `feat: ...`.
 - One logical change per commit.
