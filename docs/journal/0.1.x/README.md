@@ -35,6 +35,8 @@ One line per task, in the order of work:
 - [x] [014 Cancellation and the metadata timer in Cluster](014-cluster-cancellation.md) — [a384054](https://github.com/thesis-php/kafka/commit/a384054)
 - [ ] [015 Connection failures and leaks](015-connection-failures.md)
 - [ ] [021 Group close and rebalance](021-group-close-and-rebalance.md)
+- [ ] [039 Shared work in consumers and cancellation](039-shared-work-in-consumers.md)
+- [ ] [040 Metadata timer: interval and log](040-metadata-timer-details.md)
 - [ ] [010 Varint and int64 without copies](010-varint-decoding.md)
 - [ ] 011 Retriable errors and leader change
 - [ ] 012 Generator: client versions and null structs
@@ -52,6 +54,7 @@ One line per task, in the order of work:
 - [ ] 029 Timestamp of LogAppendTime records
 - [ ] 030 Errors lost by Errors::for()
 - [ ] 031 Library exceptions in place of generic ones
+- [ ] 041 Requests that go to the controller
 - [ ] 026 Write and read performance
 - [ ] 027 One Produce request per broker
 - [ ] [003 Transactional producer](003-transactional-producer.md)
