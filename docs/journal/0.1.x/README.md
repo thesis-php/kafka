@@ -33,7 +33,7 @@ One line per task, in the order of work:
 - [x] [008 Produce by topic id](008-produce-by-topic-id.md) — [4aa3a83](https://github.com/thesis-php/kafka/commit/4aa3a83)
 - [x] [013 Topic lookup in metadata](013-topic-lookup.md) — [f171341](https://github.com/thesis-php/kafka/commit/f171341)
 - [x] [014 Cancellation and the metadata timer in Cluster](014-cluster-cancellation.md) — [a384054](https://github.com/thesis-php/kafka/commit/a384054)
-- [ ] [015 Connection failures and leaks](015-connection-failures.md)
+- [x] [015 Connection failures and leaks](015-connection-failures.md) — [6cb4f0b](https://github.com/thesis-php/kafka/commit/6cb4f0b)
 - [ ] [021 Group close and rebalance](021-group-close-and-rebalance.md)
 - [ ] [039 Shared work in consumers and cancellation](039-shared-work-in-consumers.md)
 - [ ] [040 Metadata timer: interval and log](040-metadata-timer-details.md)
