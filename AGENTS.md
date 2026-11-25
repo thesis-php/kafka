@@ -11,17 +11,17 @@ PHP extension behind it: we speak the Kafka wire protocol ourselves.
 
 ## Repository layout
 
-| Path | What is inside |
-|------|----------------|
-| `src/` | The library. Namespace `Thesis\Kafka\`. |
-| `src/Protocol/Generated/` | Generated protocol classes. **Never edit by hand.** |
-| `src/**/Internal/` | Private code. Not part of the public API. |
-| `generator/` | Code generator for the protocol classes. |
-| `schemas/messages/` | Kafka JSON schemas, copied from the Apache Kafka repository. |
-| `tests/` | Tests. Same namespace as `src/`. Framework: Testo. |
-| `examples/` | Small runnable scripts for users. |
-| `docs/` | Plans and design notes. |
-| `var/` | Caches and logs. Ignored by git. |
+| Path                      | What is inside                                               |
+|---------------------------|--------------------------------------------------------------|
+| `src/`                    | The library. Namespace `Thesis\Kafka\`.                      |
+| `src/Protocol/Generated/` | Generated protocol classes. **Never edit by hand.**          |
+| `src/**/Internal/`        | Private code. Not part of the public API.                    |
+| `generator/`              | Code generator for the protocol classes.                     |
+| `schemas/messages/`       | Kafka JSON schemas, copied from the Apache Kafka repository. |
+| `tests/`                  | Tests. Same namespace as `src/`. Framework: Testo.           |
+| `examples/`               | Small runnable scripts for users.                            |
+| `docs/journal/`           | The task list for each base branch. See "Journal".           |
+| `var/`                    | Caches and logs. Ignored by git.                             |
 
 ## How to run things
 
@@ -210,12 +210,93 @@ with `make infect`.
 - Only `src/`, `examples/` and a few root files ship in the Composer package
   (see `.gitattributes`).
 
+## Journal
+
+All planned work is in the journal: fixes, features, small improvements. Each
+base branch has its own journal.
+
+```
+docs/journal/
+  TEMPLATE.md              the template of a task file
+  0.1.x/
+    README.md              goals and the task list of the 0.1.x branch
+    001-short-title.md     the description of task 001
+```
+
+### Which journal to use
+
+1. Run `git branch --show-current`.
+2. If the branch is a base branch (`0.1.x`, `0.2.x`, ...), the journal is
+   `docs/journal/<branch>/`.
+3. If it is another branch (a feature branch), use the highest version
+   directory in `docs/journal/`.
+4. If you are still not sure, ask the user.
+
+A task belongs to one base branch only. Do not take tasks from the journal of
+another version.
+
+### The task list
+
+`README.md` of a journal has one line per task, in the order of work:
+
+```markdown
+- [ ] [001 Short title](001-short-title.md)
+- [x] [002 Short title](002-short-title.md) — [a1b2c3d](https://github.com/thesis-php/kafka/commit/a1b2c3d)
+- [ ] 003 Short title
+```
+
+- `[ ]` is not done, `[x]` is done. A done task has a link to its commit.
+- A task with a link has a task file and is ready for work.
+- A task without a link has no task file yet. It is not ready. Do not
+  implement it.
+- Numbers have three digits and are never reused or changed.
+
+### The task file
+
+The task file describes the task: the goal, the idea of the solution, the
+decisions agreed with the developer, and the tests. It follows
+`docs/journal/TEMPLATE.md`. It does not list every class to change: the
+internal design is the implementer's choice.
+
+- Do the task as the file says. Do not add things it does not ask for.
+- If the file is wrong, unclear, or does not match the code, stop and tell the
+  user. Do not change the "Decisions" section on your own.
+- Task files and the task list are changed only together with the user.
+
+### Skills
+
+- `/plan-task <idea or number>` writes a task file with the developer.
+- `/implement <number or title>` creates the task branch, implements the task
+  and reviews it.
+- `/plan-branch <branch>` starts the journal for a new base branch.
+
+Work that the user asks for directly, without a task, is fine too. Do not add
+it to the journal unless the user asks.
+
+### Finishing a task
+
+A task is done when the user asks to commit it. Then:
+
+1. Commit the work. Put the task number at the end of the subject:
+   `feat: transactional producer (001)`.
+2. In the journal `README.md`, change `[ ]` to `[x]` and add the link to that
+   commit with the short hash.
+3. Commit this change alone: `chore: journal 001 done`.
+
+Do not mark a task as done before its work is committed.
+
 ## Git
 
 - Do not commit or push unless the user asks.
 - Commit messages follow the existing history: `chore: short description`,
   `fix: ...`, `feat: ...`.
 - One logical change per commit.
+- Branch names are `<type>/<task>`. `<task>` is the name of the task file
+  without `.md`, for example `feat/001-transactional-producer`. For work
+  without a task, use a short name in lower case with hyphens.
+  - `fixes/<task>` — bug fixes.
+  - `feat/<task>` — new features.
+  - `chore/<task>` — technical debt, small changes, maintenance.
 
 ## When to stop and ask
 
