@@ -212,11 +212,22 @@ Notes:
   takes topic `configs` and a `name`, for example to create a deleted topic
   again. `negotiatedVersion(ApiKey::Produce)` returns the version that the
   client uses with the broker of the run.
-  `createClient(seeds:, metadataMaxAge:)` creates one more client with other
-  settings. `proxy()` starts a TCP proxy to the first seed broker. A client
-  that uses `$proxy->endpoint` loses the broker after `$proxy->disconnect()`.
+  `createClient(seeds:, metadataMaxAge:, connectTimeout:, requestTimeout:)`
+  creates one more client with other settings. `groupConsumer(..., client:)`
+  creates the consumer on such a client. `proxy()` starts a TCP proxy to the
+  first seed broker. A client that uses `$proxy->endpoint` loses the broker
+  after `$proxy->disconnect()`. After `$proxy->stall()` the open connections
+  stay open but never answer; new connections work. `$proxy->accepted()`
+  tells how many client connections the proxy got.
+  `brokenPeer(PeerFault::Close|Stall|Garbage)` starts a TCP server that plays
+  a broken broker: it closes each connection at once, never answers, or
+  answers with a frame length of 2 GiB and garbage. It does not speak the
+  Kafka protocol. `accepted()` and `openConnections()` tell how many
+  connections it got and how many the client has not closed yet.
   `loopWorkAfter($step)` runs the step and returns the event loop work that
   the step left behind (it waits until there is none).
+  `loopErrorsDuring($step)` runs the step and returns the exceptions that
+  reached the event loop while it ran.
 - When the closure ends, the kit closes every client it gave and deletes every
   topic it created. It does this also when the closure fails or runs out of
   time. Do not close clients and do not delete topics at the end of a test.

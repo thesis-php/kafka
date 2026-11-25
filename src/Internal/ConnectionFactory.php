@@ -69,7 +69,14 @@ final readonly class ConnectionFactory
             ]),
         );
 
-        $connection->versionsHandshake($cancellation);
+        try {
+            $connection->versionsHandshake($cancellation);
+        } catch (\Throwable $e) {
+            // The socket is open already. Without this close it leaks.
+            $connection->close();
+
+            throw $e;
+        }
 
         try {
             $connection->authenticate($cancellation);

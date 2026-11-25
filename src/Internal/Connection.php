@@ -40,8 +40,8 @@ final class Connection
     /**
      * Outbound queue: one writer per push, single consumer is the writer
      * coroutine in run(). Bounded buffer ($sendBufferSize) provides
-     * back-pressure: concurrent callers will block on push if the writer
-     * is slower than the producers.
+     * back-pressure: concurrent callers wait on push if the writer
+     * is slower than the producers. Each caller waits with its own cancellation.
      *
      * @var Pipeline\Queue<Connection\PendingRequest<*>>
      */
@@ -68,6 +68,25 @@ final class Connection
 
     private ?Time\Duration $sessionExpires = null;
 
+    /**
+     * The hrtime() of the last bytes read from the socket.
+     */
+    private int $lastReadAt;
+
+    /**
+     * Requests whose callers stopped waiting before the answer came.
+     * The broker still owes an answer to each of them.
+     *
+     * @var array<non-negative-int, true>
+     */
+    private array $abandoned = [];
+
+    /**
+     * The hrtime() when the connection began to wait for an answer: the
+     * start of the first request after a moment with no owed answers.
+     */
+    private int $waitingSince = 0;
+
     public function __construct(
         private readonly Socket $socket,
         private readonly Config $config,
@@ -78,24 +97,24 @@ final class Connection
     ) {
         $this->correlation = new Connection\CorrelationIds();
         $this->send = new Pipeline\Queue(bufferSize: $sendBufferSize);
+        $this->lastReadAt = (int) hrtime(true);
     }
 
     /**
      * @template R of Generated\Response
      * @param Connection\Call<R> $call
+     * @param ?int $startedAt the hrtime() when the caller began the request, now by default
      * @return ($reply is Connection\Reply::Expected ? R : null)
      * @throws Exception
-     * @throws Pipeline\DisposedException
      * @throws CancelledException
      */
     public function call(
         Connection\Call $call,
         Cancellation $cancellation = new NullCancellation(),
         Connection\Reply $reply = Connection\Reply::Expected,
+        ?int $startedAt = null,
     ): mixed {
-        if ($this->state === Connection\State::Closed) {
-            throw new ConnectionClosed('Connection is closed.');
-        }
+        $startedAt ??= (int) hrtime(true);
 
         if ($this->state === Connection\State::Idle) {
             $this->run();
@@ -112,6 +131,12 @@ final class Connection
         // only one coroutine performs the SASL exchange while all other
         // callers await the same result.
         $this->refreshSession($cancellation, $call->request->apiKey());
+
+        // The connection can close while the session is refreshed.
+        // A completed send queue does not accept a request.
+        if ($this->state === Connection\State::Closed) {
+            throw new ConnectionClosed("Connection is closed: {$this->endpoint}.");
+        }
 
         // A Call may carry an explicit version (used during the bootstrap
         // ApiVersions handshake, where we hard-code v0 because the negotiated
@@ -150,14 +175,29 @@ final class Connection
         );
 
         if ($reply === Connection\Reply::Expected) {
+            if ($this->pending === [] && $this->abandoned === []) {
+                $this->waitingSince = $startedAt;
+            }
+
             $this->pending[$id] = $request;
         }
 
-        $this->send->push($request);
-
         try {
+            try {
+                // A full queue makes the caller wait. It waits with its own cancellation.
+                $this->send->pushAsync($request)->ignore()->await($cancellation);
+            } catch (Pipeline\DisposedException) {
+                // The writer has stopped, so the connection is closed.
+                // The close has failed the request already.
+                return $deferred->getFuture()->await();
+            }
+
             return $deferred->getFuture()->await($cancellation);
         } catch (\Throwable $e) {
+            if ($e instanceof CancelledException) {
+                $this->closeIfSilent((int) hrtime(true));
+            }
+
             if ($e instanceof ConnectionClosed) {
                 // @infection-ignore-all
                 $this->logger->debug('request aborted by connection close', [
@@ -182,10 +222,16 @@ final class Connection
             // request was already written to the socket (very likely once we're
             // past push()), the response will still arrive and silently be dropped
             // in the read loop as "unknown correlation id". Aborting an in-flight
-            // pipelined request can only be done by killing the whole TCP session,
-            // which we don't do at this layer.
+            // pipelined request can only be done by killing the whole TCP session.
+            // We do it only for a connection that does not answer (see silentSince()).
             if ($reply === Connection\Reply::Expected) {
                 unset($this->pending[$id]);
+
+                // The answer has not come, and the connection is open. The answer is
+                // still owed, so the connection keeps waiting for it.
+                if (!$deferred->isComplete()) {
+                    $this->abandoned[$id] = true;
+                }
             }
         }
     }
@@ -312,13 +358,86 @@ final class Connection
         $this->onClose[] = $f;
     }
 
+    /**
+     * Closes the connection when it owes answers and has been silent for the
+     * request timeout: nothing was read since it began to wait, or since the
+     * last bytes. Such a connection is probably half-open. A connection with
+     * no owed answers is never silent, however long it was idle.
+     *
+     * The timeout of a caller starts a little before its request reaches the
+     * connection. So the silence starts at the moment the caller began the
+     * request ($startedAt of call()), not when the request was queued. The
+     * next request of the same caller then sees the silence of its timed-out
+     * request as at least the request timeout.
+     *
+     * @param int $now the hrtime() of the check
+     * @return bool true when the connection was closed
+     */
+    public function closeIfSilent(int $now): bool
+    {
+        if ($this->state === Connection\State::Closed || ($this->pending === [] && $this->abandoned === [])) {
+            return false;
+        }
+
+        $silence = $now - max($this->waitingSince, $this->lastReadAt);
+        if ($silence < $this->config->requestTimeout->toNanoseconds()) {
+            return false;
+        }
+
+        // @infection-ignore-all
+        $this->logger->warning('connection does not answer, closing it', [
+            'silence' => round($silence / 1e9, 3),
+            'timeout' => $this->config->requestTimeout->toSeconds(3),
+        ]);
+
+        $this->close();
+
+        return true;
+    }
+
     public function close(): void
     {
-        if ($this->state === Connection\State::Running) {
-            $this->state = Connection\State::Closed;
-            $this->socket->close();
-            $this->send->complete();
+        $this->shutdown(new ConnectionClosed("Connection closed locally: {$this->endpoint}."));
+    }
+
+    /**
+     * Closes the connection once. Every waiting request and every onClose
+     * callback gets the reason at once, so nobody uses a dead connection.
+     */
+    private function shutdown(Exception $reason): void
+    {
+        if ($this->state === Connection\State::Closed) {
+            return;
         }
+
+        $this->state = Connection\State::Closed;
+        $this->socket->close();
+        $this->send->complete();
+
+        $requests = $this->pending;
+        $this->pending = [];
+        $this->abandoned = [];
+
+        foreach ($requests as $request) {
+            $request->error($reason);
+        }
+
+        $callbacks = $this->onClose;
+        $this->onClose = [];
+
+        foreach ($callbacks as $callback) {
+            $callback($reason);
+        }
+    }
+
+    /**
+     * Returns a library exception for a failure of the socket.
+     */
+    private function failure(\Throwable $e): Exception
+    {
+        return $e instanceof Exception
+            ? $e
+            : new ConnectionClosed("Connection failed: {$this->endpoint}: {$e->getMessage()}");
     }
 
     private function refreshSession(Cancellation $cancellation, Generated\ApiKey $requestKey): void
@@ -432,169 +551,152 @@ final class Connection
      *     completes its deferred. Exits when the socket is closed.
      *   - writer: drains the outbound queue and writes framed requests
      *     into the socket. Exits when the queue is completed (close()).
+     *
+     * Both close the connection when they stop. They never throw into the event loop.
      */
     private function run(): void
     {
-        $pending = &$this->pending;
-        $onClose = &$this->onClose;
-        $state = &$this->state;
-        $send = $this->send;
-        $socket = $this->socket;
-        $endpoint = $this->endpoint;
+        EventLoop::queue($this->read(...));
+        EventLoop::queue($this->write(...));
 
-        EventLoop::queue(static function () use (
-            &$pending,
-            &$onClose,
-            &$state,
-            $socket,
-            $endpoint,
-            $send,
-        ): void {
-            $buffer = new Connection\ReadBuffer();
+        $this->state = Connection\State::Running;
+    }
 
-            try {
-                while (($chunk = $socket->read()) !== null) {
-                    foreach ($buffer->push($chunk) as $frame) {
-                        $reader = new Reader($frame);
+    private function read(): void
+    {
+        $buffer = new Connection\ReadBuffer();
+        $reason = null;
 
-                        $correlationId = $reader->readInt32();
-                        if (!isset($pending[$correlationId])) {
-                            // Either the request was cancelled before the response arrived
-                            // (entry removed from $pending), or the broker is misbehaving.
-                            // Either way, drop silently and move on.
-                            continue;
-                        }
+        try {
+            while (($chunk = $this->socket->read()) !== null) {
+                $this->lastReadAt = (int) hrtime(true);
 
-                        /** @var Connection\PendingRequest<*> $request */
-                        $request = $pending[$correlationId];
-                        unset($pending[$correlationId]);
-
-                        $versions = [$request->requestVersion];
-
-                        // ApiVersions bootstrap is the only place where we may decode the
-                        // same response frame against two candidate body versions.
-                        //
-                        // We first try the version that was actually sent on the wire and,
-                        // if that decode does not fit the received bytes, retry exactly
-                        // once against the same frame using the alternate bootstrap
-                        // response version. Re-parsing the already buffered frame is
-                        // cheaper than issuing a second network request just to discover
-                        // which body shape the broker chose for this response.
-                        //
-                        // We keep this special case local to ApiVersions. Once the
-                        // ApiVersions handshake succeeds, the connection has negotiated
-                        // versions for all subsequent APIs and normal decoding becomes a
-                        // single-pass operation with one known body version.
-                        if ($request->request->apiKey() === Generated\ApiKey::ApiVersions && $request->requestVersion !== $request->responseVersion) {
-                            $versions[] = $request->responseVersion;
-                        }
-
-                        $last = array_key_last($versions);
-
-                        foreach ($versions as $index => $version) {
-                            try {
-                                $headerVersion = $request
-                                    ->request
-                                    ->apiKey()
-                                    ->responseHeaderVersion($version);
-
-                                // Response header v1+ ends with a flexible-versions tagged-fields
-                                // trailer. We don't currently emit or interpret any tagged fields
-                                // at the header level, so we just consume them.
-                                //
-                                // Note: ApiVersionsResponse is a special case in the protocol — its
-                                // body uses flexible versions but its header is always v0. The
-                                // responseHeaderVersion() method on ApiKey hardcodes that.
-                                if ($headerVersion >= 1) {
-                                    $reader->readTaggedFields();
-                                }
-
-                                $responseType = $request
-                                    ->request
-                                    ->responseType();
-
-                                $response = $responseType::decode($reader, $version);
-                                $request->complete($response); // @phpstan-ignore argument.type
-
-                                break;
-                            } catch (\Throwable $exception) {
-                                if (!$exception instanceof MalformedResponse || $index === $last) {
-                                    $request->error($exception);
-
-                                    break;
-                                }
-
-                                // Older brokers can answer a newer ApiVersions request with a
-                                // legacy-shaped response body. Likewise, decoding a legacy
-                                // body as a modern flexible version can fail either by
-                                // exhausting the frame or by tripping a compact/non-compact
-                                // invariant. Rather than send a second request, rewind to
-                                // the start of the response body (right after correlationId)
-                                // and reinterpret this same frame using the alternate
-                                // version.
-                                $reader->reset(4);
-                            }
-                        }
-                    }
+                foreach ($buffer->push($chunk) as $frame) {
+                    $this->dispatch($frame);
                 }
-            } catch (\Throwable $exception) {
-                // Caught here so the finally block can rethrow it through pending
-                // requests with proper context. Without this, an unexpected error
-                // in the read loop would surface in pending requests as a generic
-                // "connection closed" with no clue about the actual cause.
-            } finally {
-                // The read loop has exited — the socket is gone, either because we
-                // closed it ourselves (close() was called) or because the broker
-                // closed it (idle timeout, network failure, broker shutdown).
-                // Either way, every in-flight request is now lost: the response
-                // will never arrive. Reject them so callers don't block forever.
-                $requests = $pending;
-                $pending = [];
-
-                $callbacks = $onClose;
-                $onClose = [];
-
-                if ($requests !== [] || $callbacks !== []) {
-                    $exception ??= $state === Connection\State::Running
-                        ? new ConnectionClosed("Connection closed by the broker: {$endpoint}.")
-                        : new ConnectionClosed("Connection closed locally: {$endpoint}.");
-
-                    foreach ($requests as $request) {
-                        $request->error($exception);
-                    }
-
-                    foreach ($callbacks as $callback) {
-                        $callback($exception);
-                    }
-                }
-
-                // Wake the writer coroutine if it's still draining the queue. When state
-                // is Running, only the read loop has exited (broker closed the socket);
-                // close() hasn't been called and hasn't completed the queue yet, so we
-                // do it here. When state is Closed, close() already called complete()
-                // and a second call would throw.
-                if ($state === Connection\State::Running) {
-                    $send->complete();
-                }
-
-                $state = Connection\State::Closed;
             }
-        });
+        } catch (\Throwable $e) {
+            // Without the cause the waiting requests would get only "connection closed".
+            $reason = $this->failure($e);
+        } finally {
+            // The socket is gone, so no response will arrive.
+            // The broker closed it, or close() did, or the read failed.
+            $this->shutdown($reason ?? new ConnectionClosed("Connection closed by the broker: {$this->endpoint}."));
+        }
+    }
 
-        EventLoop::queue(static function () use (
-            $send,
-            $socket,
-        ): void {
-            $buffer = new Connection\WriteBuffer($socket);
+    private function write(): void
+    {
+        $buffer = new Connection\WriteBuffer($this->socket);
+        $iterator = $this->send->iterate();
 
-            $iterator = $send->iterate();
-
+        try {
             /** @var Connection\PendingRequest<*> $request */
             foreach ($iterator as $request) {
                 $buffer->write($request);
             }
-        });
+        } catch (\Throwable $e) {
+            if ($this->state === Connection\State::Running) {
+                // @infection-ignore-all
+                $this->logger->debug('write failed, closing the connection', [
+                    'exception' => $e,
+                ]);
+            }
 
-        $this->state = Connection\State::Running;
+            $this->shutdown($this->failure($e));
+        } finally {
+            // The callers that wait for a free place in the queue get an error now.
+            $iterator->dispose();
+        }
+    }
+
+    /**
+     * @param non-empty-string $frame
+     * @throws Exception
+     */
+    private function dispatch(string $frame): void
+    {
+        $reader = new Reader($frame);
+
+        $correlationId = $reader->readInt32();
+        unset($this->abandoned[$correlationId]);
+
+        if (!isset($this->pending[$correlationId])) {
+            // Either the request was cancelled before the response arrived
+            // (entry removed from $pending), or the broker is misbehaving.
+            // Either way, drop silently and move on.
+            return;
+        }
+
+        /** @var Connection\PendingRequest<*> $request */
+        $request = $this->pending[$correlationId];
+        unset($this->pending[$correlationId]);
+
+        $versions = [$request->requestVersion];
+
+        // ApiVersions bootstrap is the only place where we may decode the
+        // same response frame against two candidate body versions.
+        //
+        // We first try the version that was actually sent on the wire and,
+        // if that decode does not fit the received bytes, retry exactly
+        // once against the same frame using the alternate bootstrap
+        // response version. Re-parsing the already buffered frame is
+        // cheaper than issuing a second network request just to discover
+        // which body shape the broker chose for this response.
+        //
+        // We keep this special case local to ApiVersions. Once the
+        // ApiVersions handshake succeeds, the connection has negotiated
+        // versions for all subsequent APIs and normal decoding becomes a
+        // single-pass operation with one known body version.
+        if ($request->request->apiKey() === Generated\ApiKey::ApiVersions && $request->requestVersion !== $request->responseVersion) {
+            $versions[] = $request->responseVersion;
+        }
+
+        $last = array_key_last($versions);
+
+        foreach ($versions as $index => $version) {
+            try {
+                $headerVersion = $request
+                    ->request
+                    ->apiKey()
+                    ->responseHeaderVersion($version);
+
+                // Response header v1+ ends with a flexible-versions tagged-fields
+                // trailer. We don't currently emit or interpret any tagged fields
+                // at the header level, so we just consume them.
+                //
+                // Note: ApiVersionsResponse is a special case in the protocol — its
+                // body uses flexible versions but its header is always v0. The
+                // responseHeaderVersion() method on ApiKey hardcodes that.
+                if ($headerVersion >= 1) {
+                    $reader->readTaggedFields();
+                }
+
+                $responseType = $request
+                    ->request
+                    ->responseType();
+
+                $response = $responseType::decode($reader, $version);
+                $request->complete($response); // @phpstan-ignore argument.type
+
+                break;
+            } catch (\Throwable $exception) {
+                if (!$exception instanceof MalformedResponse || $index === $last) {
+                    $request->error($exception);
+
+                    break;
+                }
+
+                // Older brokers can answer a newer ApiVersions request with a
+                // legacy-shaped response body. Likewise, decoding a legacy
+                // body as a modern flexible version can fail either by
+                // exhausting the frame or by tripping a compact/non-compact
+                // invariant. Rather than send a second request, rewind to
+                // the start of the response body (right after correlationId)
+                // and reinterpret this same frame using the alternate
+                // version.
+                $reader->reset(4);
+            }
+        }
     }
 }
