@@ -295,12 +295,19 @@ A task is done when the user asks to commit it. Then:
 2. In the journal `README.md`, change `[ ]` to `[x]` and add the link to that
    commit with the short hash.
 3. Commit this change alone: `chore: journal 001 done`.
+4. Push the task branch and give the user the link to the pull request, as
+   the "Git" section describes.
 
 Do not mark a task as done before its work is committed.
 
 ## Git
 
 - Do not commit or push unless the user asks.
+- When the user asks to commit, also push the branch and give the user the
+  link to the pull request. If there is no pull request yet, give the link
+  that opens a new one against the base branch:
+  `https://github.com/thesis-php/kafka/compare/<base>...<branch>?expand=1`.
+  Never push to a base branch directly.
 - Commit messages follow the existing history: `chore: short description`,
   `fix: ...`, `feat: ...`.
 - One logical change per commit.

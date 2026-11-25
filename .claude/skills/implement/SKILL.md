@@ -106,4 +106,5 @@ Tell the user:
 - what is still open, with the failing output if a check does not pass.
 
 Do not commit and do not mark the task as done. The task is marked when the
-user asks to commit it, as `AGENTS.md` describes ("Finishing a task").
+user asks to commit it, as `AGENTS.md` describes ("Finishing a task"). Then
+you also push the task branch and give the user the link to the pull request.
