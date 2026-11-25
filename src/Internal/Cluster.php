@@ -15,11 +15,13 @@ use Revolt\EventLoop;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\AllBrokersFailed;
+use Thesis\Kafka\Exception\ConnectionClosed;
 use Thesis\Kafka\Exception\NoAvailableController;
 use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\Exception\UnknownBroker;
 use Thesis\Kafka\Exception\UnknownTopic;
 use Thesis\Kafka\Internal\Cluster\Metadata;
+use Thesis\Kafka\NetworkException;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
@@ -49,6 +51,8 @@ final class Cluster implements MetadataProvider
 
     private ?string $metadataCallbackId = null;
 
+    private bool $closed = false;
+
     public function __construct(
         private readonly Config $config,
         private readonly ContextLogger $logger,
@@ -66,6 +70,7 @@ final class Cluster implements MetadataProvider
                 Cluster\NodeId::unknown($index),
                 $endpoint,
                 $factory,
+                $config->connectTimeout->add($config->requestTimeout),
             ),
             array_keys($this->config->seeds),
             $this->config->seeds,
@@ -107,10 +112,21 @@ final class Cluster implements MetadataProvider
             throw new \LogicException('Retry cannot be set with Reply::None.');
         }
 
+        $this->ensureOpen();
+
         $this->metadataCallbackId ??= EventLoop::repeat(
             $this->config->metadataMaxAge->toSeconds(),
             function (): void {
-                $this->refreshMetadata();
+                // An exception must not leave the timer callback: it stops the event loop.
+                // The next tick tries again.
+                try {
+                    $this->refreshMetadata();
+                } catch (\Throwable $e) {
+                    // @infection-ignore-all
+                    $this->logger->warning('periodic metadata refresh failed', [
+                        'exception' => $e,
+                    ]);
+                }
             },
         );
 
@@ -136,6 +152,12 @@ final class Cluster implements MetadataProvider
 
     public function close(): void
     {
+        if ($this->closed) {
+            return;
+        }
+
+        $this->closed = true;
+
         $futures = [];
 
         foreach ($this->brokers as $id => $broker) {
@@ -340,6 +362,30 @@ final class Cluster implements MetadataProvider
 
         $errors = [];
 
+        foreach ($this->candidates() as $broker) {
+            try {
+                return $broker->request($request, $cancellation, $reply);
+            } catch (NetworkException $e) {
+                // Only network errors move the request to the next broker. A cancellation
+                // or an error of the request itself goes to the caller at once.
+                $errors[(string) $broker->endpoint] = $e;
+
+                // After close() no other broker is tried.
+                $this->ensureOpen();
+            }
+        }
+
+        throw new AllBrokersFailed($errors);
+    }
+
+    /**
+     * Yields the brokers to try, in order. It is lazy: the list of cold
+     * brokers is built only after all wired brokers have failed.
+     *
+     * @return \Generator<Cluster\Broker>
+     */
+    private function candidates(): \Generator
+    {
         // Prefer brokers that already have a live connection. Reusing
         // a wired broker avoids TCP/TLS/ApiVersions/SASL handshakes.
         // Random pick spreads load when several are wired.
@@ -350,14 +396,8 @@ final class Cluster implements MetadataProvider
 
         while ($wired !== []) {
             $key = array_rand($wired);
-            $broker = $wired[$key];
+            yield $wired[$key];
             unset($wired[$key]);
-
-            try {
-                return $broker->request($request, $cancellation, $reply);
-            } catch (\Throwable $e) {
-                $errors[(string) $broker->endpoint] = $e;
-            }
         }
 
         // Discovered brokers without an open connection. We dial
@@ -370,28 +410,24 @@ final class Cluster implements MetadataProvider
 
         while ($cold !== []) {
             $key = array_rand($cold);
-            $broker = $cold[$key];
+            yield $cold[$key];
             unset($cold[$key]);
-
-            try {
-                return $broker->request($request, $cancellation, $reply);
-            } catch (\Throwable $e) {
-                $errors[(string) $broker->endpoint] = $e;
-            }
         }
 
         // Reached on the first bootstrap (no discovered yet) or when
         // every discovered endpoint is unreachable. The user picked
         // the seed order intentionally, so we don't randomize.
-        foreach ($this->seeds as $seed) {
-            try {
-                return $seed->request($request, $cancellation, $reply);
-            } catch (\Throwable $e) {
-                $errors[(string) $seed->endpoint] = $e;
-            }
-        }
+        yield from $this->seeds;
+    }
 
-        throw new AllBrokersFailed($errors);
+    /**
+     * @throws ConnectionClosed
+     */
+    private function ensureOpen(): void
+    {
+        if ($this->closed) {
+            throw new ConnectionClosed('Cluster is closed.');
+        }
     }
 
     private function discover(Generated\MetadataResponse $metadata): void
@@ -428,6 +464,7 @@ final class Cluster implements MetadataProvider
                 nodeId: new Cluster\NodeId($id),
                 endpoint: $endpoint,
                 factory: $this->factory,
+                connectTimeout: $this->config->connectTimeout->add($this->config->requestTimeout),
             );
         }
 

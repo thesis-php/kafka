@@ -7,6 +7,8 @@ namespace Thesis\Kafka\Testing;
 use Amp\CancelledException;
 use Amp\DeferredCancellation;
 use Amp\TimeoutCancellation;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Thesis\Kafka\Client;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Config\SASLConfig;
@@ -31,13 +33,14 @@ final readonly class Setup
         private array $seeds,
         private ?SASLConfig $sasl = null,
         ?TimeSpan $timeout = null,
+        private LoggerInterface $logger = new NullLogger(),
     ) {
         $this->timeout = $timeout ?? TimeSpan::fromSeconds(self::DEFAULT_TIMEOUT_SECONDS);
     }
 
     public function sasl(SASLConfig $sasl): self
     {
-        return new self($this->seeds, $sasl, $this->timeout);
+        return new self($this->seeds, $sasl, $this->timeout, $this->logger);
     }
 
     /**
@@ -45,7 +48,15 @@ final readonly class Setup
      */
     public function timeout(TimeSpan $timeout): self
     {
-        return new self($this->seeds, $this->sasl, $timeout);
+        return new self($this->seeds, $this->sasl, $timeout, $this->logger);
+    }
+
+    /**
+     * Sets the logger of the clients that the kit creates.
+     */
+    public function logger(LoggerInterface $logger): self
+    {
+        return new self($this->seeds, $this->sasl, $this->timeout, $logger);
     }
 
     /**
@@ -58,11 +69,11 @@ final readonly class Setup
     public function test(\Closure $scenario): void
     {
         $config = new Config(seeds: $this->seeds, sasl: $this->sasl);
-        $client = new Client($config);
+        $client = new Client($config, $this->logger);
         $resources = new Resources($client);
         $stop = new DeferredCancellation();
 
-        $future = async($scenario, new Kafka($client, $config, $resources, $stop->getCancellation()));
+        $future = async($scenario, new Kafka($client, $config, $resources, $stop->getCancellation(), $this->logger));
         $timer = new TimeoutCancellation($this->timeout->toSeconds(3));
         $failure = null;
 

@@ -9,6 +9,7 @@ use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\AllBrokersFailed;
+use Thesis\Kafka\Exception\SaslAuthenticationFailed;
 use Thesis\Kafka\SASL\Plain\PlainAuthenticator;
 use Thesis\Kafka\Testing\Kafka;
 
@@ -60,8 +61,8 @@ final readonly class PlainSaslAuthenticationTest
                 ),
             ]))
             ->test(static function (Kafka $kafka): void {
-                Expect::exception(AllBrokersFailed::class)
-                    ->fromMethod(Client::class, 'request')
+                // A wrong password is not a network error: the client does not try other brokers.
+                Expect::exception(SaslAuthenticationFailed::class)
                     ->withMessageContaining('Invalid username or password');
 
                 $kafka->client->request(Kafka::metadataRequest());

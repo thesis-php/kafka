@@ -6,13 +6,19 @@ namespace Thesis\Kafka\Internal\Cluster;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
+use Amp\CompositeCancellation;
+use Amp\DeferredCancellation;
 use Amp\Future;
 use Amp\NullCancellation;
+use Amp\TimeoutCancellation;
 use Thesis\Kafka\Config\Endpoint;
 use Thesis\Kafka\Exception;
+use Thesis\Kafka\Exception\ConnectionClosed;
+use Thesis\Kafka\Exception\ConnectionFailed;
 use Thesis\Kafka\Internal;
 use Thesis\Kafka\Internal\Connection;
 use Thesis\Kafka\Protocol\Generated;
+use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 /**
@@ -26,13 +32,23 @@ final class Broker
     /** @var \SplObjectStorage<Connection\Kind, Future<Connection>> */
     private \SplObjectStorage $opening;
 
+    /**
+     * Stops the connects in progress when the broker is closed.
+     */
+    private DeferredCancellation $closing;
+
+    /**
+     * @param TimeSpan $connectTimeout the time limit of a new connection with its handshake
+     */
     public function __construct(
         public readonly NodeId $nodeId,
         public readonly Endpoint $endpoint,
         private readonly Internal\ConnectionFactory $factory,
+        private readonly TimeSpan $connectTimeout,
     ) {
         $this->alive = new \SplObjectStorage();
         $this->opening = new \SplObjectStorage();
+        $this->closing = new DeferredCancellation();
     }
 
     /**
@@ -54,8 +70,10 @@ final class Broker
         //   - someone is already opening one — await their Future;
         //   - no one is — start opening, publish the Future for any
         //     concurrent caller, and await it ourselves.
+        // The connect is shared, so it does not use the cancellation of one
+        // caller. Each caller stops waiting on its own cancellation.
         $connection = $this->alive[$kind]
-            ?? ($this->opening[$kind] ??= $this->connect($kind, $cancellation))->await($cancellation);
+            ?? ($this->opening[$kind] ??= $this->connect($kind))->await($cancellation);
 
         return $connection->call(new Connection\Call($request), $cancellation, $reply);
     }
@@ -67,6 +85,9 @@ final class Broker
 
     public function close(Cancellation $cancellation = new NullCancellation()): void
     {
+        $this->closing->cancel();
+        $this->closing = new DeferredCancellation();
+
         $futures = [];
 
         while ($this->alive->valid()) {
@@ -83,27 +104,45 @@ final class Broker
     /**
      * @return Future<Connection>
      */
-    private function connect(Connection\Kind $kind, Cancellation $cancellation): Future
+    private function connect(Connection\Kind $kind): Future
     {
         $alive = $this->alive;
         $opening = $this->opening;
         $factory = $this->factory;
         $endpoint = $this->endpoint;
+        $closing = $this->closing->getCancellation();
+        $timeout = $this->connectTimeout->toSeconds(3);
 
-        /** @var Future<Connection> */
-        return async(static function () use (
+        /** @var Future<Connection> $future */
+        $future = async(static function () use (
             $alive,
             $opening,
             $factory,
             $kind,
             $endpoint,
-            $cancellation,
+            $closing,
+            $timeout,
         ): Connection {
             try {
-                $connection = $factory->open(
-                    $endpoint,
-                    $cancellation,
-                );
+                try {
+                    $connection = $factory->open(
+                        $endpoint,
+                        new CompositeCancellation($closing, new TimeoutCancellation($timeout)),
+                    );
+                } catch (CancelledException $e) {
+                    // The callers did not cancel this connect, so they get a network error.
+                    if ($closing->isRequested()) {
+                        throw new ConnectionClosed("Broker is closed: {$endpoint}.");
+                    }
+
+                    throw new ConnectionFailed($endpoint, $e->getPrevious() ?? $e);
+                }
+
+                if ($closing->isRequested()) {
+                    $connection->close();
+
+                    throw new ConnectionClosed("Broker is closed: {$endpoint}.");
+                }
 
                 $alive[$kind] = $connection;
 
@@ -125,5 +164,11 @@ final class Broker
                 unset($opening[$kind]);
             }
         });
+
+        // All callers can stop waiting before the connect ends.
+        // Its error must not reach the event loop then.
+        $future->ignore();
+
+        return $future;
     }
 }

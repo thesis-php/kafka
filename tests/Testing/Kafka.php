@@ -8,7 +8,10 @@ use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\CompositeCancellation;
 use Amp\TimeoutCancellation;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Ramsey\Uuid\Uuid;
+use Revolt\EventLoop;
 use Thesis\Kafka\Client;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Consumer;
@@ -57,6 +60,7 @@ final readonly class Kafka
         private Config $config,
         private Resources $resources,
         private Cancellation $cancellation,
+        private LoggerInterface $logger = new NullLogger(),
     ) {}
 
     /**
@@ -324,6 +328,70 @@ final readonly class Kafka
         });
 
         return $subscription;
+    }
+
+    /**
+     * Creates one more client with other settings. Without seeds it uses the
+     * seeds of the run. It logs to the logger of the run. The kit closes the
+     * client at the end.
+     *
+     * @param list<Config\Endpoint> $seeds
+     */
+    public function createClient(array $seeds = [], ?TimeSpan $metadataMaxAge = null): Client
+    {
+        $client = new Client(
+            new Config(
+                seeds: $seeds === [] ? $this->config->seeds : $seeds,
+                sasl: $this->config->sasl,
+                metadataMaxAge: $metadataMaxAge,
+            ),
+            $this->logger,
+        );
+        $this->resources->addCloser('client', $client->close(...));
+
+        return $client;
+    }
+
+    /**
+     * Starts a TCP proxy to the first seed broker. A client that uses the
+     * endpoint of the proxy loses the broker when the proxy is closed.
+     * The kit closes the proxy at the end.
+     */
+    public function proxy(): Proxy
+    {
+        $proxy = new Proxy($this->config->seeds[0]);
+        $this->resources->addCloser('proxy', $proxy->close(...));
+
+        return $proxy;
+    }
+
+    /**
+     * Runs the step and waits until the event loop has no work left from it.
+     * Work is a callback that the step created and that keeps the loop alive:
+     * an enabled and referenced timer, stream watcher or signal watcher.
+     * Returns the callbacks that are left, so the result is an empty list.
+     *
+     * @param \Closure(): void $step
+     * @return list<non-empty-string> callback types with ids, for example "Repeat#c"
+     */
+    public function loopWorkAfter(\Closure $step): array
+    {
+        $before = array_flip(EventLoop::getIdentifiers());
+
+        $step();
+
+        $left = static fn(): array => array_values(array_map(
+            static fn(string $id) => \sprintf('%s#%s', EventLoop::getType($id)->name, $id),
+            array_filter(
+                EventLoop::getIdentifiers(),
+                static fn(string $id) => !isset($before[$id]) && EventLoop::isEnabled($id) && EventLoop::isReferenced($id),
+            ),
+        ));
+
+        return $this->poll(static fn() => $left())
+            ->expecting('no event loop work left')
+            ->describedBy(static fn(array $callbacks) => \sprintf('callbacks [%s]', implode(', ', $callbacks)))
+            ->until(static fn(array $callbacks) => $callbacks === []);
     }
 
     /**

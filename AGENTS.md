@@ -187,6 +187,8 @@ Notes:
 - `Kafka::test()` runs on the main test cluster. For another broker or other
   settings, use a chain before `test()`:
   `Kafka::connect('kafka-plain-standalone:9092')->sasl($sasl)->timeout($limit)->test(...)`.
+  `logger($logger)` gives a PSR-3 logger to the clients of the kit, so a test
+  can check the log or react to a log record.
   A test of the main cluster does not write broker addresses.
 - A transaction test runs the same scenario on Kafka 3.9 and on Kafka 4.x.
   It uses the data provider of the kit and gets a `Setup`:
@@ -210,6 +212,11 @@ Notes:
   takes topic `configs` and a `name`, for example to create a deleted topic
   again. `negotiatedVersion(ApiKey::Produce)` returns the version that the
   client uses with the broker of the run.
+  `createClient(seeds:, metadataMaxAge:)` creates one more client with other
+  settings. `proxy()` starts a TCP proxy to the first seed broker. A client
+  that uses `$proxy->endpoint` loses the broker after `$proxy->disconnect()`.
+  `loopWorkAfter($step)` runs the step and returns the event loop work that
+  the step left behind (it waits until there is none).
 - When the closure ends, the kit closes every client it gave and deletes every
   topic it created. It does this also when the closure fails or runs out of
   time. Do not close clients and do not delete topics at the end of a test.
