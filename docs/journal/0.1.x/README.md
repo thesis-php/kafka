@@ -26,7 +26,7 @@ One line per task, in the order of work:
 - [ ] 003 Short title          (no task file yet)
 -->
 
-- [ ] [001 Mutation testing scope](001-mutation-testing-scope.md)
+- [x] [001 Mutation testing scope](001-mutation-testing-scope.md) — [93a8aac](https://github.com/thesis-php/kafka/commit/93a8aac)
 - [ ] [002 Kafka 4 test broker](002-kafka-4-test-broker.md)
 - [ ] [008 Produce by topic id](008-produce-by-topic-id.md)
 - [ ] [013 Topic lookup in metadata](013-topic-lookup.md)
