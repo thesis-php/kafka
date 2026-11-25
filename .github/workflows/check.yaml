@@ -13,18 +13,21 @@ concurrency:
 jobs:
   code-style:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - run: make fixer-check rector-check
 
   composer:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - run: make composer-validate composer-normalize-check deps-analyze
 
   phpstan:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy: &strategy
       fail-fast: false
       matrix:
@@ -36,13 +39,17 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy: *strategy
     steps:
       - uses: actions/checkout@v6
       - run: PHP_IMAGE_VERSION=${{ matrix.php }} make ${{ matrix.deps == 'lowest' && 'install-lowest' || '' }} test
 
   infect:
+    # A full run is too slow for every pull request. It is back when the tests are stable.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - run: make infect ARGS='--threads=max'
