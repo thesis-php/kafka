@@ -22,6 +22,14 @@ Read its `README.md`.
   number in the list plus one, with three digits.
 - If the input is empty, ask the developer what to plan.
 
+Then look in the journal directory for notes about this task. Some tasks
+have collected findings in a separate file, for example
+`audit-findings.md`, in a section with the number of the task. If there is
+such a section, start from it: it lists the problems, the places in the
+code and how sure the finding is. Check each item against the current code,
+because the code may have changed since the notes were written. Tell the
+developer which items are still true and which are not.
+
 ## 2. Study the code
 
 Before you ask anything, read the code the task touches. Read the generated

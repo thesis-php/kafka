@@ -26,7 +26,8 @@ first.
 
 Find the journal of the previous version (the highest version directory in
 `docs/journal/`). Read its `README.md` and collect the tasks that are not done
-(`- [ ]`).
+(`- [ ]`). If it has a section "Deferred to <branch>", collect its topics
+too. They were set aside for this version on purpose.
 
 ## 3. Talk with the developer
 

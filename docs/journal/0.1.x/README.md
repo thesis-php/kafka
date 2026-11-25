@@ -5,9 +5,18 @@ Tasks for the `0.1.x` branch. The rules are in the "Journal" section of
 
 ## Goals
 
-<!-- What this version must deliver. Three to five lines. -->
+In this branch we do three things:
+
+- make the existing code stable: fix the bugs found by the audit and the
+  flaky tests;
+- make it fast: remove the known performance problems of the read and write
+  paths;
+- add transactions: the transactional producer, `ReadCommitted` consumers and
+  the transact session.
 
 ## Tasks
+
+The findings behind tasks 009-031 are in [audit-findings.md](audit-findings.md).
 
 <!--
 One line per task, in the order of work:
@@ -17,4 +26,61 @@ One line per task, in the order of work:
 - [ ] 003 Short title          (no task file yet)
 -->
 
-No tasks yet. Add one with `/plan-task`.
+- [ ] [001 Mutation testing scope](001-mutation-testing-scope.md)
+- [ ] [002 Kafka 4 test broker](002-kafka-4-test-broker.md)
+- [ ] [008 Produce by topic id](008-produce-by-topic-id.md)
+- [ ] [013 Topic lookup in metadata](013-topic-lookup.md)
+- [ ] [014 Cancellation and the metadata timer in Cluster](014-cluster-cancellation.md)
+- [ ] [015 Connection failures and leaks](015-connection-failures.md)
+- [ ] [021 Group close and rebalance](021-group-close-and-rebalance.md)
+- [ ] [010 Varint and int64 without copies](010-varint-decoding.md)
+- [ ] 011 Retriable errors and leader change
+- [ ] 012 Generator: client versions and null structs
+- [ ] 016 Producer shutdown
+- [ ] 017 Producer concurrency
+- [ ] 018 Idempotent producer after a failed batch
+- [ ] 019 Fetch errors
+- [ ] 020 Consumer lifecycle
+- [ ] 022 Group commits
+- [ ] 009 Topic ids in offset commit
+- [ ] 023 Group membership
+- [ ] 024 Compression codecs
+- [ ] 025 Send the client id
+- [ ] 028 Compare the port of an endpoint
+- [ ] 029 Timestamp of LogAppendTime records
+- [ ] 030 Errors lost by Errors::for()
+- [ ] 031 Library exceptions in place of generic ones
+- [ ] 026 Write and read performance
+- [ ] 027 One Produce request per broker
+- [ ] [003 Transactional producer](003-transactional-producer.md)
+- [ ] [004 Transaction errors and fencing](004-transaction-errors.md)
+- [ ] [005 Read committed consumer](005-read-committed-consumer.md)
+- [ ] [006 Consumer offsets in a transaction](006-offsets-in-transaction.md)
+- [ ] [007 Transact session](007-transact-session.md)
+- [ ] 032 TLS tests
+- [ ] 033 Broker throttling
+- [ ] 034 Consumer position and partition selection
+- [ ] 035 New partitions of a topic
+- [ ] 036 Release preparation
+
+## Deferred to 0.2.x
+
+Topics that are not part of 0.1.x. They have no numbers and no task files.
+`/plan-branch 0.2.x` moves them to the new journal.
+
+- Share groups (KIP-932). Needs a broker that supports them and the
+  generator fix from task 012.
+- The new consumer group protocol (KIP-848).
+- Cooperative rebalancing (KIP-429). `Consumer\RebalanceProtocol::Cooperative`
+  exists, but the join code does not support it.
+- Metrics: local metrics for the user, and client telemetry for the broker
+  (KIP-714).
+- SASL OAUTHBEARER. Kerberos (GSSAPI) is not planned.
+- A typed admin client. Today there is only `Client::request()`.
+- Fetch sessions (KIP-227).
+- Fetch from the closest replica (KIP-392). The rack id is always empty
+  today.
+- Protection from a stuck handler: a consumer whose handler never returns
+  keeps its partitions forever, because the heartbeat runs in the
+  background. There is no `max.poll.interval` equivalent.
+- Rebootstrap when all known broker addresses changed (KIP-899).
