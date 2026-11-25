@@ -12,16 +12,17 @@ use Thesis\Kafka\Exception\NoAvailablePartitionLeader;
 use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\Exception\UnexpectedValue;
 use Thesis\Kafka\Exception\UnknownPartition;
-use Thesis\Kafka\Exception\UnknownTopic;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\Connection;
 use Thesis\Kafka\Internal\ContextLogger;
+use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\Producer;
 use Thesis\Kafka\Producer\Internal\ReadyBatch;
 use Thesis\Kafka\Protocol\Error\PartitionError;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
+use function Amp\delay;
 
 /**
  * @internal
@@ -122,6 +123,9 @@ final readonly class BatchProducer
                     'maxAttempts' => $this->config->produceAttempts,
                 ]);
 
+                // The leader may change, or may not know a new topic yet.
+                // Wait a little and ask for the new leader before the next attempt.
+                delay(Retry\backoff($attempt), cancellation: $cancellation);
                 $this->cluster->refreshMetadata([$batch->topic], $cancellation);
             } catch (\Throwable $e) {
                 if ($attempt >= $this->config->produceAttempts) {
@@ -163,9 +167,7 @@ final readonly class BatchProducer
         int $partition,
         Cancellation $cancellation = new NullCancellation(),
     ): array {
-        $topicMetadata = $this->cluster->metadata()->topics[$topic]
-            ?? $this->cluster->refreshMetadata([$topic], $cancellation)->topics[$topic]
-            ?? throw new UnknownTopic($topic);
+        $topicMetadata = $this->cluster->topic($topic, $cancellation);
 
         $partitionMetadata = $topicMetadata->partitions[$partition]
             ?? throw new UnknownPartition($topic, $partition);

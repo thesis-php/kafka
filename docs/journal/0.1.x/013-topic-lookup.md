@@ -50,6 +50,16 @@ producer sees new partitions of a topic.
   reproduced through the public API, do not fix it blindly. Report it.
 - The test helper `waitUntilTopicVisible()` stays. The fix must work without
   it too.
+- Agreed during the implementation: the tests of this task use a topic at
+  once after it is created, and they failed because of two findings of task
+  011. This task takes these two: `NotLeaderForPartition` becomes retriable,
+  and the producer waits and refreshes the metadata between two produce
+  attempts after a retriable error. The rest of task 011 stays there.
+- Agreed during the implementation: `ListOffsets` is retried on a retriable
+  error, and its failure is a library exception with the Kafka error code.
+- `waitUntilTopicVisible()` does not exist any more. Its place is the wait
+  inside `Kafka::topic()` of the test kit. It stays, and the new tests do not
+  use it.
 
 ## Tests
 
@@ -78,7 +88,8 @@ producer sees new partitions of a topic.
 ## Out of scope
 
 - Cancellation handling and the metadata timer errors (task 014).
-- Retry of produce after a leader change (task 011).
+- The rest of task 011: the other error codes of `ErrorCode::retriable()`
+  and the exceptions path of the producer after a leader change.
 
 ## Depends on
 

@@ -49,6 +49,7 @@ final readonly class DirectConsumerFactory
             cluster: $cluster,
             config: $config,
             requestTimeout: $this->config->requestTimeout,
+            logger: $logger,
         );
 
         return new DirectConsumer(

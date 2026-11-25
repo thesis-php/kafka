@@ -171,7 +171,7 @@ final class AssignmentConsumer
         \assert(\count($topics) > 0);
 
         // Resolve which partitions exist and who leads them.
-        $metadata = $this->cluster->refreshMetadata(
+        $metadata = $this->cluster->lookup(
             $topics,
             $cancellation ?? new NullCancellation(),
         );

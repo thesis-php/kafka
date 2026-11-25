@@ -11,7 +11,10 @@ use Amp\NullCancellation;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
+use Thesis\Kafka\Internal\ContextLogger;
+use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\Protocol\ErrorCode;
+use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\TopicPartition;
 use Thesis\Time\TimeSpan;
@@ -26,6 +29,7 @@ final readonly class OffsetLister
         private Cluster $cluster,
         private Consumer\Config $config,
         private TimeSpan $requestTimeout,
+        private ContextLogger $logger,
     ) {}
 
     /**
@@ -113,24 +117,32 @@ final readonly class OffsetLister
             timeoutMs: (int) $this->requestTimeout->toMilliseconds(3),
         );
 
+        // The leader from the metadata may not know a new topic yet. It answers
+        // with a retriable error, so the request is sent again.
         $response = $this->cluster->request(
-            $request,
-            $cancellation,
+            request: $request,
+            cancellation: $cancellation,
             brokerId: $leaderId,
+            retry: new Retry\Operation(
+                static fn(Generated\ListOffsetsResponse $response): ErrorCode => (Errors::for($response)->errors[0] ?? null)?->code() ?? ErrorCode::None,
+                // @infection-ignore-all
+                logger: $this->logger->with([
+                    'component' => 'retry',
+                    'operation' => 'listOffsets',
+                ]),
+            ),
         );
+
+        $errors = Errors::for($response);
+        if (!$errors->empty()) {
+            throw new Exception\ProtocolError($errors);
+        }
 
         /** @var TopicPartition\Map<non-negative-int> $result */
         $result = new TopicPartition\Map();
 
         foreach ($response->topics as $topicResponse) {
             foreach ($topicResponse->partitions as $partitionResponse) {
-                $error = ErrorCode::from($partitionResponse->errorCode);
-                if ($error !== ErrorCode::None) {
-                    throw new \RuntimeException(
-                        "ListOffsets failed for {$topicResponse->name}-{$partitionResponse->partitionIndex}: {$error->name}.",
-                    );
-                }
-
                 $topic = $topicResponse->name;
                 \assert($topic !== '');
 

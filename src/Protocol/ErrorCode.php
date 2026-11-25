@@ -292,6 +292,7 @@ enum ErrorCode: int
             self::CorruptMessage,
             self::UnknownTopicOrPartition,
             self::LeaderNotAvailable,
+            self::NotLeaderForPartition,
             self::RequestTimedOut,
             self::BrokerNotAvailable,
             self::NetworkException,
