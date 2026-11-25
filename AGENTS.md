@@ -188,11 +188,28 @@ Notes:
   settings, use a chain before `test()`:
   `Kafka::connect('kafka-plain-standalone:9092')->sasl($sasl)->timeout($limit)->test(...)`.
   A test of the main cluster does not write broker addresses.
+- A transaction test runs the same scenario on Kafka 3.9 and on Kafka 4.x.
+  It uses the data provider of the kit and gets a `Setup`:
+
+  ```php
+  #[Test]
+  #[DataProvider([Kafka::class, 'versions'])]
+  public function commitsTransaction(Setup $setup): void
+  {
+      $setup->test(static function (Kafka $kafka): void { /* ... */ });
+  }
+  ```
+
+  The name of the data set (`Kafka 3.9`, `Kafka 4.x`) says which broker
+  failed. Other tests stay on Kafka 3.9.
 - Ask the kit for everything: `topic()`, `producer()`, `directConsumer()`,
   `groupConsumer()`, `subscribe()`, and `$kafka->client` for raw requests.
   Tests of the internal cluster and connection use `cluster()` and
   `connection()`. `topic()` returns only when every broker sees the topic with
-  a leader for each partition. Do not wait for it again.
+  a leader for each partition. Do not wait for it again. `topic()` also
+  takes topic `configs` and a `name`, for example to create a deleted topic
+  again. `negotiatedVersion(ApiKey::Produce)` returns the version that the
+  client uses with the broker of the run.
 - When the closure ends, the kit closes every client it gave and deletes every
   topic it created. It does this also when the closure fails or runs out of
   time. Do not close clients and do not delete topics at the end of a test.

@@ -46,10 +46,8 @@ final class PartitionWorker
 
     public function enqueue(ReadyBatch $batch): void
     {
-        if ($this->state !== PartitionWorker\State::Running) {
-            throw new \RuntimeException('Partition worker is not running.');
-        }
-
+        // The sender stops workers only after its router loop ends.
+        // So a stopped worker gets no batches.
         $this->queue->push($batch);
     }
 
