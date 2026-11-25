@@ -40,6 +40,11 @@ final readonly class Kafka
         'kafka-2:9092',
         'kafka-3:9092',
     ];
+
+    /** @var non-empty-list<non-empty-string> */
+    public const array KAFKA_4_SEEDS = [
+        'kafka-4-standalone:9092',
+    ];
     private const int DEFAULT_WAIT_SECONDS = 10;
     private const float POLL_SECONDS = 0.5;
 
@@ -72,6 +77,21 @@ final readonly class Kafka
     public static function connect(string ...$seeds): Setup
     {
         return new Setup($seeds === [] ? self::SEEDS : array_values($seeds));
+    }
+
+    /**
+     * A data provider that runs one test on the main test cluster (Kafka 3.9)
+     * and on the Kafka 4.x broker. The test gets a {@see Setup} and calls
+     * test() on it. The name of the data set says which broker failed.
+     *
+     * @return array<non-empty-string, array{Setup}>
+     */
+    public static function versions(): array
+    {
+        return [
+            'Kafka 3.9' => [self::connect()],
+            'Kafka 4.x' => [self::connect(...self::KAFKA_4_SEEDS)],
+        ];
     }
 
     /**
