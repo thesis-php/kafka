@@ -87,6 +87,15 @@ final class Connection
      */
     private int $waitingSince = 0;
 
+    /**
+     * Fails with the close reason when the connection closes. A caller that
+     * waits for a free place in the send queue also waits for it, so the
+     * close releases the caller. The queue itself does not release it.
+     *
+     * @var DeferredFuture<never>
+     */
+    private readonly DeferredFuture $closed;
+
     public function __construct(
         private readonly Socket $socket,
         private readonly Config $config,
@@ -98,6 +107,9 @@ final class Connection
         $this->correlation = new Connection\CorrelationIds();
         $this->send = new Pipeline\Queue(bufferSize: $sendBufferSize);
         $this->lastReadAt = (int) hrtime(true);
+        $this->closed = new DeferredFuture();
+        // Most connections close with nobody waiting for a place in the queue.
+        $this->closed->getFuture()->ignore();
     }
 
     /**
@@ -157,6 +169,8 @@ final class Connection
 
         /** @var DeferredFuture<null|R> $deferred */
         $deferred = new DeferredFuture();
+        // A caller can stop waiting before the close fails this request.
+        $deferred->getFuture()->ignore();
 
         if ($reply === Connection\Reply::None) {
             // Resolve immediately. The write is queued; we don't await
@@ -183,14 +197,12 @@ final class Connection
         }
 
         try {
-            try {
-                // A full queue makes the caller wait. It waits with its own cancellation.
-                $this->send->pushAsync($request)->ignore()->await($cancellation);
-            } catch (Pipeline\DisposedException) {
-                // The writer has stopped, so the connection is closed.
-                // The close has failed the request already.
-                return $deferred->getFuture()->await();
-            }
+            // A full queue makes the caller wait. It waits with its own cancellation,
+            // and the close of the connection ends the wait with the close reason.
+            Future\awaitFirst([
+                $this->send->pushAsync($request)->ignore(),
+                $this->closed->getFuture(),
+            ], $cancellation);
 
             return $deferred->getFuture()->await($cancellation);
         } catch (\Throwable $e) {
@@ -413,6 +425,7 @@ final class Connection
         $this->state = Connection\State::Closed;
         $this->socket->close();
         $this->send->complete();
+        $this->closed->error($reason);
 
         $requests = $this->pending;
         $this->pending = [];
@@ -588,11 +601,10 @@ final class Connection
     private function write(): void
     {
         $buffer = new Connection\WriteBuffer($this->socket);
-        $iterator = $this->send->iterate();
 
         try {
             /** @var Connection\PendingRequest<*> $request */
-            foreach ($iterator as $request) {
+            foreach ($this->send->iterate() as $request) {
                 $buffer->write($request);
             }
         } catch (\Throwable $e) {
@@ -604,9 +616,6 @@ final class Connection
             }
 
             $this->shutdown($this->failure($e));
-        } finally {
-            // The callers that wait for a free place in the queue get an error now.
-            $iterator->dispose();
         }
     }
 
