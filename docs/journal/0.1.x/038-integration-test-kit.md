@@ -5,10 +5,10 @@ Type: chore
 ## Goal
 
 Integration tests get a small test kit: a facade that connects to a test
-broker, creates topics, waits for them, gives clients and cleans up after the
-test. A test contains only its scenario and its assertions. If the kit proves
-to be good, a later task can give it to the users of the library as public
-API.
+broker, runs the scenario of a test, creates topics, waits for them, gives
+clients and cleans up after the scenario. A test contains only its scenario
+and its assertions. If the kit proves to be good, a later task can give it to
+the users of the library as public API.
 
 ## Context
 
@@ -48,20 +48,28 @@ API.
   `kafka-apiversions-legacy`. The addresses of the main cluster are in
   `TestCase::SEEDS`. A test of another broker passes its address to
   `createClient()`.
+- `Client::request()` has no way to choose the broker. A metadata request
+  goes to a random broker (`Internal\Cluster::doBrokerRequest()`). Only the
+  internal `Internal\Cluster::request()` has a `$brokerId` parameter.
+  `tests/Internal/ClusterTest.php` already uses `Internal\Cluster` directly.
+- `Client::createProducer()` makes a separate `Internal\Cluster` for the
+  producer. `Client::close()` does not close it. Every producer and consumer
+  must be closed on its own.
 - Many test classes have `#[Retry(maxAttempts: 5, markFlaky: true)]`. Every
   attempt is a new call of the test method.
-- PHP allows to switch fibers in a destructor since 8.4. The project needs
-  PHP 8.4 or newer.
+- CI had test jobs that hung for 6 hours. A wait without a limit is one way
+  to get this.
 - Only `src/` and `examples/` ship in the Composer package (see
   `.gitattributes`). Code in `tests/` is not public.
 
 ## What to do
 
-Write a test kit in `tests/`. The test makes one environment object with a
-static factory. It asks this object for everything it needs: a topic, a
-producer, a consumer, a client for raw requests. The environment remembers
-what it gave. When the test ends, the environment closes the clients and
-deletes the topics in its destructor, also when the test failed.
+Write a test kit in `tests/`. A test gives its scenario to the kit as a
+closure. The kit connects to the broker, runs the closure and gives it one
+scenario object. The scenario asks this object for everything it needs: a
+topic, a producer, a consumer, a client for raw requests. The object
+remembers what it gave. When the closure ends, the kit closes the clients and
+deletes the topics, also when the closure failed.
 
 The kit does not start brokers. Docker does it. The kit only connects to a
 broker that already runs.
@@ -72,22 +80,36 @@ The agreed look of a test:
 #[Test]
 public function readAfterCommit(): void
 {
-    $kafka = Kafka::connect();
+    Kafka::test(static function (Kafka $kafka): void {
+        $topic = $kafka->topic(partitions: 2);
+        $producer = $kafka->producer();
+        $consumer = $kafka->groupConsumer($topic);
 
-    $topic = $kafka->topic(partitions: 2);
-    $producer = $kafka->producer();
-    $consumer = $kafka->groupConsumer($topic);
+        $producer->produceSync([...]);
+        $records = $kafka->consume($consumer, count: 4);
 
-    $producer->produceSync([...]);
-    $records = $kafka->consume($consumer, count: 4);
-
-    Assert::count($records, 4);
+        Assert::count($records, 4);
+    });
 }
 ```
 
-The names in this example show the idea. The implementer may choose better
-names and signatures, but the test must stay this short: no base class, no
-`close()`, no `deleteTopic()`, no separate wait for the topic.
+A test that needs another broker or other settings configures the run with a
+method chain:
+
+```php
+Kafka::connect('kafka-scram-256-standalone:9092')
+    ->sasl(new SASLConfig([...]))
+    ->timeout(TimeSpan::fromSeconds(30))
+    ->test(static function (Kafka $kafka): void {
+        $response = $kafka->client->request(...);
+
+        Assert::same($response->errorCode, 0);
+    });
+```
+
+The names in these examples show the idea. The implementer may choose better
+names and signatures, except `test()`, but the test must stay this short: no
+base class, no `close()`, no `deleteTopic()`, no separate wait for the topic.
 
 Move all tests that talk to a broker to the kit. Then delete `TestCase` and
 the copied helpers in the test classes.
@@ -100,10 +122,18 @@ Update `AGENTS.md` ("How to write tests") to describe the new way.
   and nothing becomes `@api` in this task.
 - The kit does not depend on Testo. It is plain objects that work with
   `Thesis\Kafka\Client`. This keeps the way open to move it to `src/` later.
-- No inheritance. A test gets the environment from a static factory.
-- The factory has default broker addresses: the main test cluster. A test can
-  pass other addresses and a SASL config, for example for a SASL broker or
-  for the old broker. There is no enum of brokers.
+- No inheritance. The entry point is a static method.
+- The scenario is a closure. The method that runs it is named `test()`. The
+  closure gets the scenario object, not a bare `Client`. The object gives the
+  client for raw requests.
+- Settings are a method chain before `test()`: broker addresses, the SASL
+  config, the time limit of the scenario. A test that needs no settings calls
+  `test()` directly.
+- The default broker addresses are the main test cluster. A test can pass
+  other addresses, for example for a SASL broker or for the old broker. There
+  is no enum of brokers.
+- Topics are created inside the closure, with a call on the scenario object.
+  They are not declared in the chain.
 - `TestCase` is deleted. Test classes are `final readonly` and have no
   parent, also the classes that do not talk to a broker. `SEEDS`,
   `CLUSTER_ID` and `metadataRequest()` move to the kit or to the tests that
@@ -118,27 +148,30 @@ Update `AGENTS.md` ("How to write tests") to describe the new way.
   - reading N records from a consumer with a time limit;
   - one general wait for a condition with a time limit.
 - A topic is ready when every broker of the cluster sees it with all its
-  partitions and a leader for each partition. One broker is not enough.
+  partitions and a leader for each partition. One broker is not enough. The
+  call that creates a topic returns only then.
+- To ask each broker, the kit may use `Thesis\Kafka\Internal\Cluster`. The
+  public API has no way to choose a broker, and this task does not add one.
 - The tests stay on the three-broker cluster. They do not move to a single
   broker.
 - A topic that a test creates with a raw request (`AdminClientTest` tests the
-  create and delete requests themselves) can be registered in the environment
-  for cleanup.
+  create and delete requests themselves) can be registered in the scenario
+  object for cleanup.
 - Every wait in the kit has a time limit. The default is 10 seconds, and a
   call can change it. When the time is over, the test fails with a message
   that says what was expected and what was seen. No wait loops forever.
 - Waits do not block the event loop: `Amp\delay()`, not `usleep()`.
-- Cleanup runs in the destructor of the environment. There is no hook and no
-  Testo plugin. The kit keeps no strong reference to the environment, so the
-  destructor runs when the test method ends.
-- First of all, check that cleanup with network requests works in a
-  destructor: after a passed test, after a failed test and after a failed
-  `#[Retry]` attempt, on PHP 8.4 and 8.5. If it does not work, stop and
-  report it. Do not build another way on your own.
+- The whole scenario has a time limit. The default is 60 seconds, and the
+  chain can change it. When the time is over, the kit stops waiting for the
+  closure, cleans up and fails the test with a message that names the limit.
+- Cleanup runs when the closure ends: after a return, after an exception and
+  after the time limit. There is no destructor, no hook and no Testo plugin.
 - Cleanup tries to release everything, also when one step fails.
-- When cleanup fails, the destructor throws. A passed test then fails with
-  the cleanup error. For a failed test PHP keeps the error of the test as
-  `previous` of the cleanup error. No error is lost.
+- When the closure failed, its exception leaves `test()` unchanged, after the
+  cleanup. A test can still expect an exception with `Expect::exception()`.
+  A failure of the cleanup does not replace the failure of the closure.
+- When the closure passed and the cleanup failed, `test()` throws the cleanup
+  error, and the test fails.
 - All tests that talk to a broker move to the kit in this task. There is one
   way to write a test.
 - The scenarios and the assertions of the existing tests do not change. Only
@@ -155,6 +188,8 @@ part of it. Check the result with these runs:
 - Make a consumer test expect one record more than it produces: the test
   fails after the time limit with a clear message. It does not hang. Revert
   the change.
+- Put an endless wait into a scenario by hand: the test fails after the time
+  limit of the scenario, and its topic is gone. Revert the change.
 - After `make test` on clean brokers no test topic stays on any broker.
 - `make test` passes five times in a row on brokers that were just created
   (`make down` before each run). The report gives the number of flaky tests
@@ -169,6 +204,7 @@ part of it. Check the result with these runs:
 - [ ] A failed test and a failed retry attempt leave no topic and no open
       client.
 - [ ] No wait in the tests is without a time limit, and none uses `usleep()`.
+- [ ] A scenario that never ends fails after its time limit.
 - [ ] A test of the main cluster does not write broker addresses. Only a
       test of another broker passes them.
 - [ ] The kit has no dependency on Testo.
@@ -187,8 +223,10 @@ part of it. Check the result with these runs:
 - Consumer groups that tests leave on the brokers.
 - Fixing flaky tests in `src/`. A test that hung in a wait without a limit
   now fails with a message; a bug of the client behind it is not fixed here.
+- A public way to send a request to a chosen broker. A later task about the
+  public kit decides it.
 - Mutants that Infection kills by a timeout. The process is killed, so no
-  destructor runs. Task 037 covers them.
+  cleanup runs. Task 037 covers them.
 
 ## Depends on
 
