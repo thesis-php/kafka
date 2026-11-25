@@ -4,10 +4,9 @@ Type: chore
 
 ## Goal
 
-Tests must not leave topics on the brokers, and `make infect` must always
-measure on clean brokers. Today the leftover topics slow the brokers down and
-make the numbers of task 001 wrong. After this task we repeat the measurement
-and have numbers we can trust.
+`make infect` must always measure on clean brokers. Today the leftover topics
+slow the brokers down and make the numbers of task 001 wrong. After this task
+we repeat the measurement and have numbers we can trust.
 
 ## Context
 
@@ -23,6 +22,8 @@ and have numbers we can trust.
 - Infection makes this much worse. A killed mutant is a failed test. A mutant
   that is killed by a timeout is a killed process: no code of the test runs
   after that, so cleanup in the test cannot help there.
+- Task 038 moves all tests to a test kit that deletes the topics also when a
+  test fails. This task starts after it.
 - `make infect` depends on `up-test-services` in the `Makefile`. It starts the
   brokers but does not clean them. The broker data is inside the containers
   (`/tmp/kafka-logs`) and lives until `make down`.
@@ -44,12 +45,9 @@ and have numbers we can trust.
 
 ## What to do
 
-Make the tests delete their topics also when the test fails. A failed
-assertion, an exception and a failed retry attempt must not leave a topic.
-
 Make `make infect` start from clean brokers every time: it creates the test
 brokers again before Infection starts. This covers the mutants that are
-killed by a timeout.
+killed by a timeout. Failed tests are covered by the test kit of task 038.
 
 Then repeat the measurement of task 001: run `make infect` three times in a
 row, set `minCoveredMsi` from the result and build the table for each area.
@@ -58,10 +56,8 @@ Update `AGENTS.md` to match the new rules.
 
 ## Decisions
 
-- Both fixes are done: cleanup in the tests and clean brokers for
-  `make infect`. One of them alone is not enough.
-- The cleanup must not hide the real failure of a test. When a test fails and
-  the cleanup fails too, the report shows the first failure.
+- Cleanup after a failed test is not a part of this task. Task 038 does it.
+  This task does not change the tests.
 - `make infect` always creates the test brokers again. It does not ask and
   has no switch. All data in the local test brokers is lost on every run.
 - `make test` and `make check` do not touch the brokers. They work as today.
@@ -74,17 +70,13 @@ Update `AGENTS.md` to match the new rules.
 - The Infection timeout and the number of threads are not changed. The report
   shows how many mutants are still timed out or skipped on clean brokers.
 - No mutants are killed in this task.
-- In `AGENTS.md`: the rule "Clean up at the end" in "How to write tests" says
-  that the cleanup must also run when the test fails. The "Mutation testing"
-  section says that `make infect` creates the test brokers again and deletes
-  their data.
+- In `AGENTS.md`: the "Mutation testing" section says that `make infect`
+  creates the test brokers again and deletes their data.
 
 ## Tests
 
 No new tests. Check the result with these runs:
 
-- Break one assertion in a test by hand, run this test, then list the topics
-  on the broker: the topic of the test is gone. Revert the change.
 - `make infect` passes three times in a row with the new threshold.
 - After the three runs all test brokers are healthy, and no broker log has
   `OutOfMemoryError`.
@@ -92,7 +84,6 @@ No new tests. Check the result with these runs:
 
 ## Acceptance criteria
 
-- [ ] A failed test and a failed retry attempt leave no topic on the broker.
 - [ ] `make infect` starts from clean brokers on every run.
 - [ ] `minCoveredMsi` is set from three measured runs on clean brokers, and
       `make infect` passes.
@@ -115,8 +106,8 @@ No new tests. Check the result with these runs:
 - The flaky tests found in task 001
   (`ProducerTest::fullBatchBypassesLingerAndResolvesImmediately`,
   `PlainSaslReauthenticationTest::closesConnectionIfExpiredSessionBypassesRefresh`).
-- Changes to the test scenarios or to the assertions.
+- Changes to the tests.
 
 ## Depends on
 
-001
+001, 038
