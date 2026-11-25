@@ -55,6 +55,7 @@ One line per task, in the order of work:
 - [ ] 030 Errors lost by Errors::for()
 - [ ] 031 Library exceptions in place of generic ones
 - [ ] 041 Requests that go to the controller
+- [ ] 042 Connection and metadata leftovers
 - [ ] 026 Write and read performance
 - [ ] 027 One Produce request per broker
 - [ ] [003 Transactional producer](003-transactional-producer.md)
