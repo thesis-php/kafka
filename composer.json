@@ -27,7 +27,7 @@
         "amphp/sync": "^2.3",
         "psr/log": "^1 || ^2 || ^3",
         "ramsey/uuid": "^4.9",
-        "revolt/event-loop": "^1.0",
+        "revolt/event-loop": "^1.0.3",
         "thesis/endian": "^0.3.3",
         "thesis/exceptionally": "^0.3.0",
         "thesis/package-version": "^0.1.2",
@@ -48,6 +48,9 @@
         "testo/retry": "^0.1.1",
         "testo/test": "^0.1.1",
         "testo/testo": "^0.10.5"
+    },
+    "conflict": {
+        "amphp/dns": "<2.2"
     },
     "autoload": {
         "psr-4": {

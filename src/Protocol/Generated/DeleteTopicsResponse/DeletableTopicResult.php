@@ -38,11 +38,7 @@ final readonly class DeletableTopicResult implements Encodable, Decodable
     {
         $flexible = $version >= 4;
         if ($version >= 6) {
-            if ($flexible) {
-                $writer->writeCompactNullableString($this->name);
-            } else {
-                $writer->writeNullableString($this->name);
-            }
+            $writer->writeCompactNullableString($this->name);
         } else {
             if ($this->name === null) {
                 throw new \UnexpectedValueException("Field 'Name' must not be null in version '{$version}'");
@@ -70,11 +66,7 @@ final readonly class DeletableTopicResult implements Encodable, Decodable
     {
         $flexible = $version >= 4;
         if ($version >= 6) {
-            if ($flexible) {
-                $name = $reader->readCompactNullableString();
-            } else {
-                $name = $reader->readNullableString();
-            }
+            $name = $reader->readCompactNullableString();
         } elseif ($flexible) {
             $name = $reader->readCompactString();
         } else {

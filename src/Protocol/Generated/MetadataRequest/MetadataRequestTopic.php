@@ -37,11 +37,7 @@ final readonly class MetadataRequestTopic implements Encodable, Decodable
             $writer->writeUuid($this->topicId);
         }
         if ($version >= 10) {
-            if ($flexible) {
-                $writer->writeCompactNullableString($this->name);
-            } else {
-                $writer->writeNullableString($this->name);
-            }
+            $writer->writeCompactNullableString($this->name);
         } else {
             if ($this->name === null) {
                 throw new \UnexpectedValueException("Field 'Name' must not be null in version '{$version}'");
@@ -66,11 +62,7 @@ final readonly class MetadataRequestTopic implements Encodable, Decodable
             $topicId = $reader->readUuid();
         }
         if ($version >= 10) {
-            if ($flexible) {
-                $name = $reader->readCompactNullableString();
-            } else {
-                $name = $reader->readNullableString();
-            }
+            $name = $reader->readCompactNullableString();
         } elseif ($flexible) {
             $name = $reader->readCompactString();
         } else {

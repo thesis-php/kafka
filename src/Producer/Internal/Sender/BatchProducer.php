@@ -75,7 +75,7 @@ final readonly class BatchProducer
                 if ($error === ErrorCode::None) {
                     $batch->complete(
                         offset: $partition->baseOffset, // @phpstan-ignore argument.type
-                        timestamp: $partition->logAppendTimeMs ?? null, // @phpstan-ignore argument.type
+                        timestamp: $partition->logAppendTimeMs, // @phpstan-ignore argument.type
                     );
 
                     $this->logger->debug('batch acknowledged', [

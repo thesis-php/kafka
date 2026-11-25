@@ -329,7 +329,7 @@ final readonly class GroupConsumerTest extends TestCase
     }
 
     /**
-     * @template T
+     * @template T of int|string|null
      * @param list<Consumer\Record> $records
      * @param callable(Consumer\Record): T $map
      * @return list<T>

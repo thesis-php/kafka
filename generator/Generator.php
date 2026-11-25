@@ -1123,6 +1123,7 @@ final readonly class Generator
         Expr $writer = new Expr\Variable('writer'),
     ): array {
         $mode = self::nullableMode($field->nullableVersions, $fieldVersions);
+        [$nullableFlexible, $nonNullableFlexible] = $this->nullableFlexibleConditions($field, $fieldVersions, $containerFlex, $mode);
 
         return $this->emitValueWrite(
             $field->type,
@@ -1132,6 +1133,8 @@ final readonly class Generator
                 writer: $writer,
                 flexible: $this->fieldFlexibleCondition($field, $fieldVersions, $containerFlex),
                 fieldName: $mode instanceof Generator\VersionGatedNullable ? $field->name : null,
+                nullableFlexible: $nullableFlexible,
+                nonNullableFlexible: $nonNullableFlexible,
             ),
         );
     }
@@ -1178,15 +1181,15 @@ final readonly class Generator
     ): array {
         $base = $type === 'records' ? 'Bytes' : ucfirst($type);
 
-        $write = static fn(Expr $v, string $suffix): Stmt => $ctx->flexible->branch(
+        $write = static fn(Generator\FlexibleCondition $flexible, Expr $v, string $suffix): Stmt => $flexible->branch(
             Ast::stmt(Ast::call($ctx->writer, 'writeCompact' . $suffix, $v)),
             Ast::stmt(Ast::call($ctx->writer, 'write' . $suffix, $v)),
         );
 
         if ($ctx->fieldName === null) {
             return $mode->apply(
-                nonNullable: static fn(Expr $v): array => [$write($v, $base)],
-                nullable: static fn(Expr $v): array => [$write($v, 'Nullable' . $base)],
+                nonNullable: static fn(Expr $v): array => [$write($ctx->whenNonNullable(), $v, $base)],
+                nullable: static fn(Expr $v): array => [$write($ctx->whenNullable(), $v, 'Nullable' . $base)],
                 accessor: $accessor,
             );
         }
@@ -1196,9 +1199,9 @@ final readonly class Generator
         return $mode->apply(
             nonNullable: static fn(Expr $v): array => [
                 self::nonNullGuard($fieldName, $v),
-                $write($v, $base),
+                $write($ctx->whenNonNullable(), $v, $base),
             ],
-            nullable: static fn(Expr $v): array => [$write($v, 'Nullable' . $base)],
+            nullable: static fn(Expr $v): array => [$write($ctx->whenNullable(), $v, 'Nullable' . $base)],
             accessor: $accessor,
         );
     }
@@ -1214,27 +1217,28 @@ final readonly class Generator
     ): array {
         $elementStmts = $this->emitValueWrite($elementType, Ast::var('item'), Generator\StaticNullableMode::Never, $ctx->forElement());
 
-        $writeLength = static fn(string $suffix, Expr $length): Stmt => $ctx->flexible->branch(
+        $writeLength = static fn(Generator\FlexibleCondition $flexible, string $suffix, Expr $length): Stmt => $flexible->branch(
             Ast::stmt(Ast::call($ctx->writer, 'writeCompact' . $suffix, $length)),
             Ast::stmt(Ast::call($ctx->writer, 'write' . $suffix, $length)),
         );
 
         if ($ctx->fieldName === null) {
             $nonNullable = static fn(Expr $v): array => [
-                $writeLength('ArrayLength', Ast::funcCall('\count', $v)),
+                $writeLength($ctx->whenNonNullable(), 'ArrayLength', Ast::funcCall('\count', $v)),
                 Ast::foreach($v, Ast::var('item'), $elementStmts),
             ];
         } else {
             $fieldName = $ctx->fieldName;
             $nonNullable = static fn(Expr $v): array => [
                 self::nonNullGuard($fieldName, $v),
-                $writeLength('ArrayLength', Ast::funcCall('\count', $v)),
+                $writeLength($ctx->whenNonNullable(), 'ArrayLength', Ast::funcCall('\count', $v)),
                 Ast::foreach($v, Ast::var('item'), $elementStmts),
             ];
         }
 
         $nullable = static fn(Expr $v): array => [
             $writeLength(
+                $ctx->whenNullable(),
                 'NullableArrayLength',
                 Ast::ternary(Ast::eq($v, Ast::null()), Ast::null(), Ast::funcCall('\count', $v)),
             ),
@@ -1295,14 +1299,19 @@ final readonly class Generator
         ?string $structRef,
         Expr $reader = new Expr\Variable('reader'),
     ): array {
+        $mode = self::nullableMode($field->nullableVersions, $fieldVersions);
+        [$nullableFlexible, $nonNullableFlexible] = $this->nullableFlexibleConditions($field, $fieldVersions, $containerFlex, $mode);
+
         return $this->emitValueRead(
             $field->type,
             $targetVar,
-            self::nullableMode($field->nullableVersions, $fieldVersions),
+            $mode,
             $structRef,
             new Generator\DecodeContext(
                 reader: $reader,
                 flexible: $this->fieldFlexibleCondition($field, $fieldVersions, $containerFlex),
+                nullableFlexible: $nullableFlexible,
+                nonNullableFlexible: $nonNullableFlexible,
             ),
         );
     }
@@ -1367,14 +1376,14 @@ final readonly class Generator
     ): array {
         $base = $type === 'records' ? 'Bytes' : ucfirst($type);
 
-        $read = static fn(string $targetVar, string $suffix): Stmt => $ctx->flexible->branch(
+        $read = static fn(Generator\FlexibleCondition $flexible, string $targetVar, string $suffix): Stmt => $flexible->branch(
             Ast::assign(Ast::var($targetVar), Ast::call($ctx->reader, 'readCompact' . $suffix)),
             Ast::assign(Ast::var($targetVar), Ast::call($ctx->reader, 'read' . $suffix)),
         );
 
         return $mode->apply(
-            nonNullable: static fn(string $targetVar): array => [$read($targetVar, $base)],
-            nullable: static fn(string $targetVar): array => [$read($targetVar, 'Nullable' . $base)],
+            nonNullable: static fn(string $targetVar): array => [$read($ctx->whenNonNullable(), $targetVar, $base)],
+            nullable: static fn(string $targetVar): array => [$read($ctx->whenNullable(), $targetVar, 'Nullable' . $base)],
             accessor: $targetVar,
         );
     }
@@ -1392,14 +1401,14 @@ final readonly class Generator
     ): array {
         $countVar = "{$targetVar}Count";
         $indexVar = "{$targetVar}Index";
-        $elementRead = $this->emitValueRead($elementType, 'item', Generator\StaticNullableMode::Never, $structRef, $ctx);
+        $elementRead = $this->emitValueRead($elementType, 'item', Generator\StaticNullableMode::Never, $structRef, $ctx->forElement());
 
         $loopBody = [
             ...$elementRead,
             Ast::push(Ast::var($targetVar), Ast::var('item')),
         ];
 
-        $readLength = static fn(string $suffix): Stmt => $ctx->flexible->branch(
+        $readLength = static fn(Generator\FlexibleCondition $flexible, string $suffix): Stmt => $flexible->branch(
             Ast::assign(Ast::var($countVar), Ast::call($ctx->reader, 'readCompact' . $suffix)),
             Ast::assign(Ast::var($countVar), Ast::call($ctx->reader, 'read' . $suffix)),
         );
@@ -1412,13 +1421,13 @@ final readonly class Generator
         );
 
         $nonNullable = static fn(string $targetVar) => [
-            $readLength('ArrayLength'),
+            $readLength($ctx->whenNonNullable(), 'ArrayLength'),
             Ast::assign(Ast::var($targetVar), Ast::array()),
             $loop(),
         ];
 
         $nullable = static fn(string $targetVar) => [
-            $readLength('NullableArrayLength'),
+            $readLength($ctx->whenNullable(), 'NullableArrayLength'),
             Ast::ifElse(
                 Ast::eq(Ast::var($countVar), Ast::null()),
                 [Ast::assign(Ast::var($targetVar), Ast::null())],
@@ -1679,6 +1688,35 @@ final readonly class Generator
         return new Generator\VersionGatedNullable(
             self::versionCondition($nullableVersions, $fieldVersions),
         );
+    }
+
+    /**
+     * A field can be nullable only in some versions. Then the code has a
+     * nullable branch and a non-nullable branch, and each branch covers its
+     * own versions. Flexibility is resolved for each branch on its own, so a
+     * branch never checks `$flexible` when the answer is already known.
+     *
+     * @return array{?Generator\FlexibleCondition, ?Generator\FlexibleCondition} nullable branch, non-nullable branch
+     */
+    private function nullableFlexibleConditions(
+        Schema\Field $field,
+        Schema\VersionRange $fieldVersions,
+        Schema\VersionRange $containerFlex,
+        Generator\NullableMode $mode,
+    ): array {
+        if (!$mode instanceof Generator\VersionGatedNullable) {
+            return [null, null];
+        }
+
+        $nullableVersions = $fieldVersions->intersect($field->nullableVersions);
+        $nonNullableVersions = $fieldVersions->without($field->nullableVersions);
+
+        return [
+            $this->fieldFlexibleCondition($field, $nullableVersions, $containerFlex),
+            $nonNullableVersions === null
+                ? null
+                : $this->fieldFlexibleCondition($field, $nonNullableVersions, $containerFlex),
+        ];
     }
 
     private function fieldFlexibleCondition(

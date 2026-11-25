@@ -15,7 +15,19 @@ final readonly class EncodeContext
         public Expr $writer,
         public FlexibleCondition $flexible,
         public ?string $fieldName = null,
+        public ?FlexibleCondition $nullableFlexible = null,
+        public ?FlexibleCondition $nonNullableFlexible = null,
     ) {}
+
+    public function whenNullable(): FlexibleCondition
+    {
+        return $this->nullableFlexible ?? $this->flexible;
+    }
+
+    public function whenNonNullable(): FlexibleCondition
+    {
+        return $this->nonNullableFlexible ?? $this->flexible;
+    }
 
     public function forElement(): self
     {

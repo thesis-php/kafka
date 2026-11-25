@@ -26,9 +26,8 @@ final readonly class RoundRobinGroupBalancerTest
             partitionCounts: ['orders' => 6],
         );
 
-        Assert::true(isset($assigned['A'], $assigned['B']));
         Assert::equals(
-            $assigned['A'],
+            $assigned['A'] ?? null,
             [
                 new TopicPartition('orders', 0),
                 new TopicPartition('orders', 2),
@@ -36,7 +35,7 @@ final readonly class RoundRobinGroupBalancerTest
             ],
         );
         Assert::equals(
-            $assigned['B'],
+            $assigned['B'] ?? null,
             [
                 new TopicPartition('orders', 1),
                 new TopicPartition('orders', 3),
@@ -61,9 +60,8 @@ final readonly class RoundRobinGroupBalancerTest
             ],
         );
 
-        Assert::true(isset($assigned['A'], $assigned['B']));
         Assert::equals(
-            $assigned['A'],
+            $assigned['A'] ?? null,
             [
                 new TopicPartition('orders', 0),
                 new TopicPartition('orders', 2),
@@ -72,7 +70,7 @@ final readonly class RoundRobinGroupBalancerTest
             ],
         );
         Assert::equals(
-            $assigned['B'],
+            $assigned['B'] ?? null,
             [
                 new TopicPartition('orders', 1),
                 new TopicPartition('orders', 3),

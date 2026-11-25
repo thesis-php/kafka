@@ -114,7 +114,12 @@ final class Coordinator
         }
 
         try {
-            $this->future ??= async($this->findCoordinator(...), $cancellation);
+            if ($this->future === null) {
+                /** @var Future<non-negative-int> $future */
+                $future = async($this->findCoordinator(...), $cancellation);
+                $this->future = $future;
+            }
+
             return $this->brokerId = $this->future->await($cancellation);
         } finally {
             $this->future = null;

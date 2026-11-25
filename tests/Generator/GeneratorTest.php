@@ -500,6 +500,119 @@ final class GeneratorTest
     }
 
     #[Test]
+    public function resolvesFlexibilityForEachNullableBranch(): void
+    {
+        self::assertSameContent(
+            <<<'JSON'
+                {
+                  "type": "response",
+                  "name": "NullableFlexibleGateResponse",
+                  "apiKey": 7,
+                  "validVersions": "0-3",
+                  "flexibleVersions": "2+",
+                  "fields": [
+                    {
+                      "name": "Name",
+                      "type": "string",
+                      "versions": "0+",
+                      "nullableVersions": "3+",
+                      "about": "Nullable only in a flexible version."
+                    },
+                    {
+                      "name": "Topics",
+                      "type": "[]string",
+                      "versions": "0+",
+                      "nullableVersions": "1+",
+                      "about": "Not nullable only in a non-flexible version."
+                    }
+                  ]
+                }
+                JSON,
+            [
+                'NullableFlexibleGateResponse.php' => <<<'PHP'
+                    <?php
+
+                    declare(strict_types=1);
+
+                    namespace Thesis\Kafka\Protocol\Generated;
+
+                    use Thesis\Kafka\Protocol\Reader;
+                    use Thesis\Kafka\Protocol\UnknownTags;
+
+                    /**
+                     * @api
+                     * @generated
+                     */
+                    final readonly class NullableFlexibleGateResponse implements Response
+                    {
+                        /**
+                         * @param ?string $name Nullable only in a flexible version.
+                         * @param ?list<string> $topics Not nullable only in a non-flexible version.
+                         * @param UnknownTags $unknownTags Unknown flexible-version tagged fields.
+                         */
+                        public function __construct(
+                            public ?string $name,
+                            public ?array $topics,
+                            public UnknownTags $unknownTags = new UnknownTags(),
+                        ) {}
+
+                        #[\Override]
+                        public static function decode(Reader $reader, int $version): static
+                        {
+                            $flexible = $version >= 2;
+                            if ($version >= 3) {
+                                $name = $reader->readCompactNullableString();
+                            } elseif ($flexible) {
+                                $name = $reader->readCompactString();
+                            } else {
+                                $name = $reader->readString();
+                            }
+                            if ($version >= 1) {
+                                if ($flexible) {
+                                    $topicsCount = $reader->readCompactNullableArrayLength();
+                                } else {
+                                    $topicsCount = $reader->readNullableArrayLength();
+                                }
+                                if ($topicsCount === null) {
+                                    $topics = null;
+                                } else {
+                                    $topics = [];
+                                    for ($topicsIndex = 0; $topicsIndex < $topicsCount; ++$topicsIndex) {
+                                        if ($flexible) {
+                                            $item = $reader->readCompactString();
+                                        } else {
+                                            $item = $reader->readString();
+                                        }
+                                        $topics[] = $item;
+                                    }
+                                }
+                            } else {
+                                $topicsCount = $reader->readArrayLength();
+                                $topics = [];
+                                for ($topicsIndex = 0; $topicsIndex < $topicsCount; ++$topicsIndex) {
+                                    if ($flexible) {
+                                        $item = $reader->readCompactString();
+                                    } else {
+                                        $item = $reader->readString();
+                                    }
+                                    $topics[] = $item;
+                                }
+                            }
+                            if ($flexible) {
+                                $unknownTags = $reader->readTaggedFields();
+                            } else {
+                                $unknownTags = new UnknownTags();
+                            }
+                            return new self($name, $topics, $unknownTags);
+                        }
+                    }
+
+                    PHP,
+            ],
+        );
+    }
+
+    #[Test]
     public function generatesNullableArraysAndRecords(): void
     {
         self::assertSameContent(

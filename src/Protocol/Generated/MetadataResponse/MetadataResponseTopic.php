@@ -43,11 +43,7 @@ final readonly class MetadataResponseTopic implements Encodable, Decodable
         $flexible = $version >= 9;
         $writer->writeInt16($this->errorCode);
         if ($version >= 12) {
-            if ($flexible) {
-                $writer->writeCompactNullableString($this->name);
-            } else {
-                $writer->writeNullableString($this->name);
-            }
+            $writer->writeCompactNullableString($this->name);
         } else {
             if ($this->name === null) {
                 throw new \UnexpectedValueException("Field 'Name' must not be null in version '{$version}'");
@@ -86,11 +82,7 @@ final readonly class MetadataResponseTopic implements Encodable, Decodable
         $flexible = $version >= 9;
         $errorCode = $reader->readInt16();
         if ($version >= 12) {
-            if ($flexible) {
-                $name = $reader->readCompactNullableString();
-            } else {
-                $name = $reader->readNullableString();
-            }
+            $name = $reader->readCompactNullableString();
         } elseif ($flexible) {
             $name = $reader->readCompactString();
         } else {

@@ -26,9 +26,8 @@ final readonly class RangeGroupBalancerTest
             partitionCounts: ['orders' => 6],
         );
 
-        Assert::true(isset($assigned['A'], $assigned['B']));
         Assert::equals(
-            $assigned['A'],
+            $assigned['A'] ?? null,
             [
                 new TopicPartition('orders', 0),
                 new TopicPartition('orders', 1),
@@ -36,7 +35,7 @@ final readonly class RangeGroupBalancerTest
             ],
         );
         Assert::equals(
-            $assigned['B'],
+            $assigned['B'] ?? null,
             [
                 new TopicPartition('orders', 3),
                 new TopicPartition('orders', 4),
@@ -58,9 +57,8 @@ final readonly class RangeGroupBalancerTest
             partitionCounts: ['orders' => 7],
         );
 
-        Assert::true(isset($assigned['A'], $assigned['B']));
         Assert::equals(
-            $assigned['A'],
+            $assigned['A'] ?? null,
             [
                 new TopicPartition('orders', 0),
                 new TopicPartition('orders', 1),
@@ -69,7 +67,7 @@ final readonly class RangeGroupBalancerTest
             ],
         );
         Assert::equals(
-            $assigned['B'],
+            $assigned['B'] ?? null,
             [
                 new TopicPartition('orders', 4),
                 new TopicPartition('orders', 5),
@@ -91,9 +89,8 @@ final readonly class RangeGroupBalancerTest
             partitionCounts: ['orders' => 3, 'payments' => 3],
         );
 
-        Assert::true(isset($assigned['A'], $assigned['B']));
         Assert::equals(
-            $assigned['A'],
+            $assigned['A'] ?? null,
             [
                 new TopicPartition('orders', 0),
                 new TopicPartition('orders', 1),
@@ -102,7 +99,7 @@ final readonly class RangeGroupBalancerTest
             ],
         );
         Assert::equals(
-            $assigned['B'],
+            $assigned['B'] ?? null,
             [
                 new TopicPartition('orders', 2),
                 new TopicPartition('payments', 2),

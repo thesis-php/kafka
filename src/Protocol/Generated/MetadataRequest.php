@@ -60,11 +60,7 @@ final readonly class MetadataRequest implements Request
             if ($this->topics === null) {
                 throw new \UnexpectedValueException("Field 'Topics' must not be null in version '{$version}'");
             }
-            if ($flexible) {
-                $writer->writeCompactArrayLength(\count($this->topics));
-            } else {
-                $writer->writeArrayLength(\count($this->topics));
-            }
+            $writer->writeArrayLength(\count($this->topics));
             foreach ($this->topics as $item) {
                 $item->encode($writer, $version);
             }

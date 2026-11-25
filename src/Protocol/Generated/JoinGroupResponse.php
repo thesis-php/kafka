@@ -53,11 +53,7 @@ final readonly class JoinGroupResponse implements Response
             $protocolType = $reader->readCompactNullableString();
         }
         if ($version >= 7) {
-            if ($flexible) {
-                $protocolName = $reader->readCompactNullableString();
-            } else {
-                $protocolName = $reader->readNullableString();
-            }
+            $protocolName = $reader->readCompactNullableString();
         } elseif ($flexible) {
             $protocolName = $reader->readCompactString();
         } else {
