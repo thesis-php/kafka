@@ -6,6 +6,8 @@ namespace Thesis\Kafka\Internal;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
+use Amp\CompositeCancellation;
+use Amp\DeferredCancellation;
 use Amp\Future;
 use Amp\NullCancellation;
 use Amp\TimeoutCancellation;
@@ -22,6 +24,7 @@ use Thesis\Kafka\Exception\UnknownBroker;
 use Thesis\Kafka\Exception\UnknownTopic;
 use Thesis\Kafka\Internal\Cluster\Metadata;
 use Thesis\Kafka\NetworkException;
+use Thesis\Kafka\Protocol\Error;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
@@ -53,6 +56,33 @@ final class Cluster implements MetadataProvider
 
     private bool $closed = false;
 
+    /**
+     * Ends the shared topic lookups on close().
+     */
+    private readonly DeferredCancellation $closing;
+
+    /**
+     * Lookups that are in flight, by topic. Concurrent lookups of one topic share one of them.
+     *
+     * @var array<non-empty-string, Future<Cluster\Metadata>>
+     */
+    private array $lookups = [];
+
+    /**
+     * The number of the last metadata request sent.
+     *
+     * @var non-negative-int
+     */
+    private int $metadataRequests = 0;
+
+    /**
+     * The number of the metadata request whose answer is in the cache, by topic.
+     * An answer to an older request does not replace it.
+     *
+     * @var array<non-empty-string, positive-int>
+     */
+    private array $topicAnswers = [];
+
     public function __construct(
         private readonly Config $config,
         private readonly ContextLogger $logger,
@@ -75,6 +105,8 @@ final class Cluster implements MetadataProvider
             array_keys($this->config->seeds),
             $this->config->seeds,
         );
+
+        $this->closing = new DeferredCancellation();
     }
 
     #[\Override]
@@ -82,9 +114,57 @@ final class Cluster implements MetadataProvider
         string $topic,
         Cancellation $cancellation = new NullCancellation(),
     ): Metadata\TopicMetadata {
-        return $this->metadata($cancellation)->topics[$topic]
-            ?? $this->refreshMetadata([$topic], $cancellation)->topics[$topic]
-            ?? throw new UnknownTopic($topic);
+        $cached = $this->metadata->topics[$topic] ?? null;
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $lookup = $this->lookups[$topic] ??= $this->startLookup($topic);
+
+        return $lookup->await($cancellation)->topics[$topic] ?? throw new UnknownTopic($topic);
+    }
+
+    /**
+     * Refreshes the metadata of the topics. A broker that does not know a new
+     * topic yet answers with a retriable error, so the request is sent again
+     * with a backoff, up to the attempts of {@see Retry\Operation}. A topic that
+     * is still missing after that is not in the result.
+     *
+     * @param list<string> $topics
+     * @throws ProtocolError a topic has an error that cannot be retried
+     * @throws Exception
+     * @throws CancelledException
+     */
+    public function lookup(array $topics, Cancellation $cancellation = new NullCancellation()): Cluster\Metadata
+    {
+        $response = $this->request(
+            request: $this->createMetadataRequest($topics),
+            cancellation: $cancellation,
+            retry: new Retry\Operation(
+                static fn(Generated\MetadataResponse $response): ErrorCode => self::topicError($response, $topics),
+                // @infection-ignore-all
+                logger: $this->logger->with([
+                    'component' => 'retry',
+                    'operation' => 'metadata',
+                    'topics' => implode(', ', $topics),
+                ]),
+            ),
+        );
+
+        $errors = array_values(array_filter(
+            Errors::for($response)->errors,
+            static fn(Error $error) => $error instanceof Error\TopicError
+                && \in_array($error->topic, $topics, true)
+                && !$error->code()->retriable(),
+        ));
+
+        if ($errors !== []) {
+            throw new ProtocolError(new Errors($errors));
+        }
+
+        \assert($this->metadata !== null);
+
+        return $this->metadata;
     }
 
     public function metadata(Cancellation $cancellation = new NullCancellation()): Cluster\Metadata
@@ -120,7 +200,8 @@ final class Cluster implements MetadataProvider
                 // An exception must not leave the timer callback: it stops the event loop.
                 // The next tick tries again.
                 try {
-                    $this->refreshMetadata();
+                    // The cached topics are refreshed too, so new partitions become visible.
+                    $this->refreshMetadata(array_keys($this->metadata->topics ?? []));
                 } catch (\Throwable $e) {
                     // @infection-ignore-all
                     $this->logger->warning('periodic metadata refresh failed', [
@@ -157,6 +238,7 @@ final class Cluster implements MetadataProvider
         }
 
         $this->closed = true;
+        $this->closing->cancel();
 
         $futures = [];
 
@@ -182,28 +264,7 @@ final class Cluster implements MetadataProvider
      */
     public function refreshMetadata(?array $topics = null, ?Cancellation $cancellation = null): Cluster\Metadata
     {
-        /** @var ?UuidInterface $nilUuid */
-        static $nilUuid;
-        $nilUuid ??= Uuid::fromString(Uuid::NIL);
-
-        $request = new Generated\MetadataRequest(
-            topics: array_map(
-                static fn(string $topic) => new Generated\MetadataRequest\MetadataRequestTopic(
-                    topicId: $nilUuid,
-                    name: $topic,
-                ),
-                array_values(
-                    array_unique(
-                        array_merge($this->config->preloadTopics, $topics ?? []),
-                    ),
-                ),
-            ),
-            allowAutoTopicCreation: false,
-            includeClusterAuthorizedOperations: false,
-            includeTopicAuthorizedOperations: false,
-        );
-
-        $this->doMetadataRequest($request, $cancellation);
+        $this->doMetadataRequest($this->createMetadataRequest($topics ?? []), $cancellation);
 
         return $this->metadata;
     }
@@ -251,6 +312,8 @@ final class Cluster implements MetadataProvider
         Generated\MetadataRequest $request,
         ?Cancellation $cancellation = null,
     ): Generated\MetadataResponse {
+        $number = ++$this->metadataRequests;
+
         try {
             /** @var Generated\MetadataResponse $response */
             $response = $this->doBrokerRequest($request, $cancellation);
@@ -274,7 +337,7 @@ final class Cluster implements MetadataProvider
         }
 
         $this->discover($response);
-        $this->createMetadataSnapshot($response);
+        $this->createMetadataSnapshot($response, $number);
 
         return $response;
     }
@@ -421,6 +484,86 @@ final class Cluster implements MetadataProvider
     }
 
     /**
+     * Starts a lookup that concurrent callers share. It does not use the
+     * cancellation of the first caller: each caller waits with its own.
+     *
+     * @param non-empty-string $topic
+     * @return Future<Cluster\Metadata>
+     */
+    private function startLookup(string $topic): Future
+    {
+        /** @var Future<Cluster\Metadata> */
+        return async(function () use ($topic): Cluster\Metadata {
+            try {
+                return $this->lookup([$topic], new CompositeCancellation(
+                    $this->closing->getCancellation(),
+                    new TimeoutCancellation($this->config->requestTimeout->toSeconds(3)),
+                ));
+            } catch (CancelledException $e) {
+                $this->ensureOpen();
+
+                throw $e;
+            } finally {
+                unset($this->lookups[$topic]);
+            }
+        })
+            // A lookup that no caller waits for any more must not report an unhandled error.
+            ->ignore();
+    }
+
+    /**
+     * @param list<string> $topics
+     */
+    private function createMetadataRequest(array $topics): Generated\MetadataRequest
+    {
+        /** @var ?UuidInterface $nilUuid */
+        static $nilUuid;
+        $nilUuid ??= Uuid::fromString(Uuid::NIL);
+
+        return new Generated\MetadataRequest(
+            topics: array_map(
+                static fn(string $topic) => new Generated\MetadataRequest\MetadataRequestTopic(
+                    topicId: $nilUuid,
+                    name: $topic,
+                ),
+                array_values(
+                    array_unique(
+                        array_merge($this->config->preloadTopics, $topics),
+                    ),
+                ),
+            ),
+            allowAutoTopicCreation: false,
+            includeClusterAuthorizedOperations: false,
+            includeTopicAuthorizedOperations: false,
+        );
+    }
+
+    /**
+     * Returns the error of the topics to look up. An error that cannot be
+     * retried comes first, so the lookup stops at once.
+     *
+     * @param list<string> $topics
+     */
+    private static function topicError(Generated\MetadataResponse $response, array $topics): ErrorCode
+    {
+        $retriable = ErrorCode::None;
+
+        foreach (Errors::for($response) as $error) {
+            if (!$error instanceof Error\TopicError || !\in_array($error->topic, $topics, true)) {
+                continue;
+            }
+
+            if (!$error->code()->retriable()) {
+                return $error->code();
+            }
+
+            $retriable = $error->code();
+        }
+
+        return $retriable;
+    }
+
+    /**
      * @throws ConnectionClosed
      */
     private function ensureOpen(): void
@@ -475,7 +618,10 @@ final class Cluster implements MetadataProvider
         $this->controllerId = $metadata->controllerId;
     }
 
-    private function createMetadataSnapshot(Generated\MetadataResponse $metadata): void
+    /**
+     * @param positive-int $number the number of the request of this answer
+     */
+    private function createMetadataSnapshot(Generated\MetadataResponse $metadata, int $number): void
     {
         $brokers = [];
         foreach ($metadata->brokers as $broker) {
@@ -537,6 +683,14 @@ final class Cluster implements MetadataProvider
         $merged = $this->metadata->topics ?? [];
 
         foreach ($topics as $name => $topic) {
+            // Answers can come in another order than the requests. A late answer
+            // must not replace a newer one, for example a good entry with "unknown".
+            if (($this->topicAnswers[$name] ?? 0) > $number) {
+                continue;
+            }
+
+            $this->topicAnswers[$name] = $number;
+
             if ($topic === null) {
                 unset($merged[$name]);
             } else {

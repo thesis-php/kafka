@@ -74,6 +74,7 @@ final readonly class GroupConsumerFactory
                 cluster: $cluster,
                 config: $config,
                 requestTimeout: $this->config->requestTimeout,
+                logger: $logger,
             ),
             groupId: $group->groupId,
             autoOffsetReset: $config->autoOffsetReset,

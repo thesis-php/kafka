@@ -88,7 +88,7 @@ final class DirectConsumer implements Consumer
     {
         $cancellation ??= new NullCancellation();
 
-        $metadata = $this->cluster->refreshMetadata($this->topics, $cancellation);
+        $metadata = $this->cluster->lookup($this->topics, $cancellation);
 
         /** @var list<TopicPartition> $partitions */
         $partitions = [];

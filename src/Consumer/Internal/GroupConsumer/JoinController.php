@@ -210,7 +210,7 @@ final readonly class JoinController
             ];
         }
 
-        $metadata = $this->cluster->refreshMetadata($subscribedTopics, $cancellation);
+        $metadata = $this->cluster->lookup($subscribedTopics, $cancellation);
 
         $partitionCounts = [];
 

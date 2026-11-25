@@ -48,7 +48,7 @@ final readonly class OffsetResolver
             return $offsets;
         }
 
-        $metadata = $this->cluster->refreshMetadata(
+        $metadata = $this->cluster->lookup(
             array_map(static fn(TopicPartition $partition) => $partition->topic, $assignment),
             $cancellation,
         );

@@ -28,6 +28,7 @@ use Thesis\Kafka\Producer;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Time\TimeSpan;
+use function Amp\async;
 
 /**
  * The test kit. A test gives its scenario to {@see test()}. The scenario gets
@@ -50,7 +51,6 @@ final readonly class Kafka
         'kafka-4-standalone:9092',
     ];
     private const int DEFAULT_WAIT_SECONDS = 10;
-    private const float POLL_SECONDS = 0.5;
 
     /**
      * @internal Only {@see Setup} creates the kit.
@@ -442,11 +442,17 @@ final readonly class Kafka
 
         /** @var \Closure(Cancellation): list<Consumer\Record> $probe */
         $probe = static function (Cancellation $cancellation) use ($consumer, &$records): array {
-            $poll = new CompositeCancellation($cancellation, new TimeoutCancellation(self::POLL_SECONDS));
+            // A direct consumer runs its setup under the cancellation of the first consume().
+            // A short poll window would cut the setup, so consume() gets no cancellation:
+            // it reads for the poll timeout of the consumer. The wait still ends at its limit.
+            $read = async(static function () use ($consumer, &$records): void {
+                foreach ($consumer->consume(ConsumeMode::Poll) as $batch) {
+                    $records = [...$records, ...$batch];
+                }
+            });
 
-            foreach ($consumer->consume(ConsumeMode::Poll, $poll) as $batch) {
-                $records = [...$records, ...$batch];
-            }
+            // The read can fail after the wait has ended. Nobody waits for it then.
+            $read->ignore()->await($cancellation);
 
             return $records;
         };
