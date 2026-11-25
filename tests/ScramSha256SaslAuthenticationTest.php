@@ -9,6 +9,7 @@ use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\AllBrokersFailed;
+use Thesis\Kafka\Exception\SaslAuthenticationFailed;
 use Thesis\Kafka\SASL\Scram\Sha256ScramAuthenticator;
 use Thesis\Kafka\Testing\Kafka;
 
@@ -60,8 +61,8 @@ final readonly class ScramSha256SaslAuthenticationTest
                 ),
             ]))
             ->test(static function (Kafka $kafka): void {
-                Expect::exception(AllBrokersFailed::class)
-                    ->fromMethod(Client::class, 'request')
+                // A wrong password is not a network error: the client does not try other brokers.
+                Expect::exception(SaslAuthenticationFailed::class)
                     ->withMessageContaining('Authentication failed during authentication due to invalid credentials with SASL mechanism SCRAM-SHA-256');
 
                 $kafka->client->request(Kafka::metadataRequest());

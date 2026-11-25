@@ -11,6 +11,7 @@ use Amp\Future;
 use Amp\NullCancellation;
 use Amp\Pipeline;
 use Amp\Socket\Socket;
+use Amp\TimeoutCancellation;
 use Revolt\EventLoop;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Config\Endpoint;
@@ -335,16 +336,38 @@ final class Connection
             return;
         }
 
-        try {
-            $this->refreshSession ??= async($this->authenticate(...), $cancellation);
-            $this->refreshSession->await($cancellation);
-        } catch (\Throwable $e) {
-            $this->close();
+        // A cancelled caller only stops waiting. The exchange goes on for the other callers.
+        ($this->refreshSession ??= $this->startRefreshSession())->await($cancellation);
+    }
 
-            throw $e;
-        } finally {
-            $this->refreshSession = null;
-        }
+    /**
+     * @return Future<null>
+     */
+    private function startRefreshSession(): Future
+    {
+        $future = async(function (): void {
+            try {
+                // The exchange is shared by all waiting callers, so it has its own time limit.
+                $this->authenticate(new TimeoutCancellation($this->config->requestTimeout->toSeconds(3)));
+            } catch (\Throwable $e) {
+                // Only a failed exchange closes the connection.
+                $this->close();
+
+                if ($e instanceof CancelledException) {
+                    throw new ConnectionClosed("Re-authentication timed out: {$this->endpoint}.");
+                }
+
+                throw $e;
+            } finally {
+                $this->refreshSession = null;
+            }
+        });
+
+        // All callers can stop waiting before the exchange ends.
+        // Its error must not reach the event loop then.
+        $future->ignore();
+
+        return $future;
     }
 
     /**
