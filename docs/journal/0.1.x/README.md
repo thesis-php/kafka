@@ -30,7 +30,7 @@ One line per task, in the order of work:
 - [x] [038 Integration test kit](038-integration-test-kit.md) — [e4ac3fc](https://github.com/thesis-php/kafka/commit/e4ac3fc)
 - [ ] [037 Test topic leak](037-test-topic-leak.md)
 - [x] [002 Kafka 4 test broker](002-kafka-4-test-broker.md) — [13593d3](https://github.com/thesis-php/kafka/commit/13593d3)
-- [ ] [008 Produce by topic id](008-produce-by-topic-id.md)
+- [x] [008 Produce by topic id](008-produce-by-topic-id.md) — [4aa3a83](https://github.com/thesis-php/kafka/commit/4aa3a83)
 - [ ] [013 Topic lookup in metadata](013-topic-lookup.md)
 - [ ] [014 Cancellation and the metadata timer in Cluster](014-cluster-cancellation.md)
 - [ ] [015 Connection failures and leaks](015-connection-failures.md)
