@@ -5,14 +5,12 @@ declare(strict_types=1);
 namespace Thesis\Kafka;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Config\SASLConfig;
 use Thesis\Kafka\Exception\AllBrokersFailed;
 use Thesis\Kafka\SASL\Scram\Sha256ScramAuthenticator;
 
-#[Covers(Sha256ScramAuthenticator::class)]
 final readonly class ScramSha256SaslAuthenticationTest extends TestCase
 {
     #[Test]

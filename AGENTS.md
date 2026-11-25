@@ -133,6 +133,11 @@ Notes:
 - Do not write a comment that explains a log call.
 - Do not create helper methods only for logging.
 - Use the same context keys as the existing logs (`topics`, `partition`, ...).
+- Put a `// @infection-ignore-all` comment directly before every new logger
+  call and every `->with([...])` context. When the call is a part of a bigger
+  statement, put the comment before that part, for example before the
+  argument `logger: $this->logger->with([...])`. See "Mutation testing" for
+  the reason.
 
 ### Dependencies
 
@@ -153,7 +158,9 @@ Notes:
   reached through the public API, it is probably dead code. Delete it.
 - A test class is `final readonly`, extends `Thesis\Kafka\TestCase`, and marks
   methods with `#[Test]`.
-- Add `#[Covers(SomeClass::class)]` for the classes the test covers.
+- Do not add `#[Covers]`. Testo collects coverage only for the classes named in
+  it. Infection mutates only covered lines, so the attribute hides code from
+  mutation testing.
 - Tests that depend on broker timing get
   `#[Retry(maxAttempts: 5, markFlaky: true)]`. Do not use retry to hide a real
   bug.
@@ -199,8 +206,14 @@ with `make infect`.
 - Do not disable mutators and do not lower `minCoveredMsi` to get a green run.
   Ignore a mutant only when it is truly equivalent, and write the reason next
   to the ignore rule.
-- Generated code (`src/Protocol/Generated/`) is a special case. Ask the user
-  before you decide how to treat it.
+- Generated code (`src/Protocol/Generated/`) is excluded in the config. It is
+  not written by hand, and the goal of 100% MSI is about hand-written code.
+- Logging code is ignored with a `// @infection-ignore-all` comment before each
+  logger call. Tests do not check log messages or log context, so these
+  mutants always escape. The config cannot do this:
+  `global-ignoreSourceCodeByRegex` matches only the changed line of a mutant,
+  and a context array often takes several lines. The comment must ignore only
+  the logging code. Do not ignore other code this way.
 
 ## Documentation
 
@@ -282,12 +295,22 @@ A task is done when the user asks to commit it. Then:
 2. In the journal `README.md`, change `[ ]` to `[x]` and add the link to that
    commit with the short hash.
 3. Commit this change alone: `chore: journal 001 done`.
+4. Push the task branch and give the user the link to the pull request, as
+   the "Git" section describes.
 
 Do not mark a task as done before its work is committed.
 
 ## Git
 
 - Do not commit or push unless the user asks.
+- When the user asks to commit, also push the branch and give the user the
+  link to the pull request. If there is no pull request yet, give the link
+  that opens a new one against the base branch:
+  `https://github.com/thesis-php/kafka/compare/<base>...<branch>?expand=1&title=<title>`.
+  The title of a pull request has the same form as a commit subject, for
+  example `feat: transactional producer (001)`. Put it into the link,
+  URL-encoded. Without it GitHub makes the title from the branch name.
+  Do not push to a base branch unless the user asks for it.
 - Commit messages follow the existing history: `chore: short description`,
   `fix: ...`, `feat: ...`.
 - One logical change per commit.

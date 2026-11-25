@@ -54,6 +54,7 @@ final readonly class GroupSession
             $cancellation,
         );
 
+        // @infection-ignore-all
         $this->logger->info('group started', [
             'generationId' => $this->membership->generationId,
             'memberId' => $this->membership->memberId,
@@ -123,6 +124,7 @@ final readonly class GroupSession
 
                 // The coordinator wants us to rejoin: a normal, expected outcome.
                 if ($errors->has(ErrorCode::RebalanceInProgress, ErrorCode::IllegalGeneration, ErrorCode::UnknownMemberID)) {
+                    // @infection-ignore-all
                     $this->logger->info('rebalance signalled by heartbeat', [
                         'error' => (string) $errors,
                         'generationId' => $this->membership->generationId,

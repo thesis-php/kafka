@@ -6,18 +6,14 @@ namespace Thesis\Kafka;
 
 use Amp\Future;
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Retry;
 use Testo\Test;
 use Thesis\Kafka\Exception\BatchFull;
-use Thesis\Kafka\Producer\Internal\AsyncProducer;
 use Thesis\Kafka\Producer\Partitioner\RoundRobinPartitioner;
 use Thesis\Kafka\Producer\Produced;
 use Thesis\Kafka\Producer\Record;
 use Thesis\Time\TimeSpan;
 
-#[Covers(Client::class)]
-#[Covers(AsyncProducer::class)]
 #[Retry(maxAttempts: 5, markFlaky: true)]
 final readonly class ProducerTest extends TestCase
 {

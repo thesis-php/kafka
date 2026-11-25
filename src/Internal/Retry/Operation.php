@@ -57,6 +57,7 @@ final readonly class Operation
                     }
 
                     if (!$error->retriable() || $attempt >= $maxAttempts) {
+                        // @infection-ignore-all
                         $logger->error('operation failed after retries', [
                             'attempt' => $attempt,
                             'maxAttempts' => $maxAttempts,
@@ -66,6 +67,7 @@ final readonly class Operation
                         return $response;
                     }
 
+                    // @infection-ignore-all
                     $logger->warning('operation failed, retrying', [
                         'attempt' => $attempt,
                         'maxAttempts' => $maxAttempts,
@@ -73,6 +75,7 @@ final readonly class Operation
                     ]);
                 } catch (Exception $e) {
                     if (!isNetwork($e) || $attempt >= $maxAttempts) {
+                        // @infection-ignore-all
                         $logger->error('operation failed after retries', [
                             'attempt' => $attempt,
                             'maxAttempts' => $maxAttempts,

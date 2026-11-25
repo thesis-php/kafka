@@ -61,6 +61,7 @@ final class AsyncProducer implements Producer
         $this->send = new Pipeline\Queue();
         $this->idempotencyCoordinator = new IdempotencyCoordinator(
             $cluster,
+            // @infection-ignore-all
             $this->logger->with([
                 'component' => 'producer.idempotency',
             ]),
@@ -69,6 +70,7 @@ final class AsyncProducer implements Producer
             cluster: $cluster,
             config: $config,
             send: $this->send,
+            // @infection-ignore-all
             logger: $this->logger->with([
                 'component' => 'producer.sender',
             ]),
@@ -119,6 +121,7 @@ final class AsyncProducer implements Producer
     #[\Override]
     public function close(): void
     {
+        // @infection-ignore-all
         $this->logger->info('close producer', [
             'producers' => \count($this->producers),
         ]);
@@ -161,12 +164,14 @@ final class AsyncProducer implements Producer
             ?? throw new \LogicException('No producer record topic and no default');
 
         $idempotency = null;
+        // @infection-ignore-all
         $logger = $this->logger->with([
             'topic' => $topic,
         ]);
 
         if ($this->config->idempotent) {
             $idempotency = $this->idempotencyCoordinator->initialize($cancellation);
+            // @infection-ignore-all
             $logger = $logger->with([
                 'producerId' => $idempotency->producerId,
                 'producerEpoch' => $idempotency->producerEpoch,

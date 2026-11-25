@@ -126,6 +126,7 @@ final class GroupConsumer implements Consumer
             return;
         }
 
+        // @infection-ignore-all
         $this->logger->info('consumer closing');
 
         $this->state = GroupConsumer\ConsumerState::Closed;
@@ -166,6 +167,7 @@ final class GroupConsumer implements Consumer
                     $assigned = array_values(array_diff_key($after, $before));
 
                     if ($revoked !== [] || $assigned !== []) {
+                        // @infection-ignore-all
                         $this->logger->info('assignment changed', [
                             'revoked' => array_map(\strval(...), $revoked),
                             'assigned' => array_map(\strval(...), $assigned),
@@ -243,6 +245,7 @@ final class GroupConsumer implements Consumer
                 throw new Exception\ProtocolError($errors);
             }
         } catch (\Throwable $e) {
+            // @infection-ignore-all
             $this->logger->warning('leave group failed', ['exception' => $e]);
         }
     }
@@ -291,6 +294,7 @@ final class GroupConsumer implements Consumer
         try {
             $this->committer->commitUncommitted($this->membership);
         } catch (\Throwable $e) {
+            // @infection-ignore-all
             $this->logger->warning('autocommit failed', ['exception' => $e]);
         }
     }

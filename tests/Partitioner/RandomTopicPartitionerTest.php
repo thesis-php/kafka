@@ -5,14 +5,11 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Partitioner;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Producer\Partitioner\RandomPartitioner;
 use Thesis\Kafka\Producer\Partitioner\RandomTopicPartitioner;
 use Thesis\Kafka\Producer\Record;
 
-#[Covers(RandomTopicPartitioner::class)]
-#[Covers(RandomPartitioner::class)]
 final class RandomTopicPartitionerTest
 {
     #[Test]

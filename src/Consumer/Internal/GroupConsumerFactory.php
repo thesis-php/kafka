@@ -32,6 +32,7 @@ final readonly class GroupConsumerFactory
             $this->logger,
         );
 
+        // @infection-ignore-all
         $logger = $this->logger->with([
             'component' => 'group-consumer',
             'topics' => implode(', ', $topics),

@@ -5,14 +5,11 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Partitioner;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Producer\Partitioner\HashPartitioner;
 use Thesis\Kafka\Producer\Partitioner\HashTopicPartitioner;
 use Thesis\Kafka\Producer\Record;
 
-#[Covers(HashTopicPartitioner::class)]
-#[Covers(HashPartitioner::class)]
 final class HashTopicPartitionerTest
 {
     #[Test]

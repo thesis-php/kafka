@@ -85,6 +85,7 @@ final class Sender
             $producer = new Sender\BatchProducer(
                 $cluster,
                 $config,
+                // @infection-ignore-all
                 $logger->with([
                     'component' => 'producer.batchProducer',
                 ]),

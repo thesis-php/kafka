@@ -89,6 +89,7 @@ final readonly class JoinController
 
             $isLeader = $join->leader === $memberId;
 
+            // @infection-ignore-all
             $this->logger->info('joined group', [
                 'generationId' => $join->generationId,
                 'memberId' => $memberId,
@@ -221,6 +222,7 @@ final readonly class JoinController
 
         $planned = $balancer->assign($members, $partitionCounts);
 
+        // @infection-ignore-all
         $this->logger->debug('computed assignment', [
             'balancer' => $balancer->name(),
             'plan' => array_map(

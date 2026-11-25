@@ -5,14 +5,11 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Partitioner;
 
 use Testo\Assert;
-use Testo\Codecov\Covers;
 use Testo\Test;
 use Thesis\Kafka\Producer\Partitioner\RoundRobinPartitioner;
 use Thesis\Kafka\Producer\Partitioner\RoundRobinTopicPartitioner;
 use Thesis\Kafka\Producer\Record;
 
-#[Covers(RoundRobinTopicPartitioner::class)]
-#[Covers(RoundRobinPartitioner::class)]
 final class RoundRobinTopicPartitionerTest
 {
     #[Test]

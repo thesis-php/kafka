@@ -164,6 +164,7 @@ final class Coordinator
             if ($errors->empty()) {
                 \assert($brokerId >= 0);
 
+                // @infection-ignore-all
                 $this->logger->info('group coordinator discovered', [
                     'nodeId' => $brokerId,
                     'host' => $host,
@@ -174,6 +175,7 @@ final class Coordinator
             }
 
             if ($errors->has(ErrorCode::CoordinatorNotAvailable, ErrorCode::CoordinatorLoadInProgress)) {
+                // @infection-ignore-all
                 $this->logger->warning('group coordinator retriable error', [
                     'error' => (string) $errors,
                     'attempt' => $attempt,
@@ -192,6 +194,7 @@ final class Coordinator
         [$brokerId, $this->brokerId] = [$this->brokerId, null];
 
         if ($brokerId !== null) {
+            // @infection-ignore-all
             $this->logger->notice('group coordinator invalidated', [
                 'nodeId' => $brokerId,
                 'reason' => $reason,

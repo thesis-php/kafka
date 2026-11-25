@@ -29,6 +29,7 @@ final readonly class Client
         public Config $config,
         LoggerInterface $logger = new NullLogger(),
     ) {
+        // @infection-ignore-all
         $logger = new Internal\ContextLogger($logger, [
             'component' => 'cluster',
             'clientName' => $config->clientSoftwareName,
@@ -58,6 +59,7 @@ final readonly class Client
         return new Producer\Internal\AsyncProducer(
             cluster: new Internal\Cluster($this->config, $this->logger),
             config: $config,
+            // @infection-ignore-all
             logger: $this->logger->with([
                 'component' => 'producer',
                 'idempotent' => $config->idempotent,

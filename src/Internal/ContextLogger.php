@@ -31,6 +31,7 @@ final readonly class ContextLogger implements LoggerInterface
     #[\Override]
     public function log($level, string|\Stringable $message, array $context = []): void
     {
+        // @infection-ignore-all
         $this->logger->log($level, $message, [
             ...$this->context,
             ...$context,
@@ -44,6 +45,7 @@ final readonly class ContextLogger implements LoggerInterface
      */
     public function with(array $context): self
     {
+        // @infection-ignore-all
         return new self($this->logger, [
             ...$this->context,
             ...$context,

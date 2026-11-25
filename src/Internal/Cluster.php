@@ -55,6 +55,7 @@ final class Cluster implements MetadataProvider
     ) {
         $this->factory = $factory = new ConnectionFactory(
             $config,
+            // @infection-ignore-all
             $this->logger->with([
                 'component' => 'connection.factory',
             ]),
@@ -232,6 +233,7 @@ final class Cluster implements MetadataProvider
             /** @var Generated\MetadataResponse $response */
             $response = $this->doBrokerRequest($request, $cancellation);
         } catch (\Throwable $e) {
+            // @infection-ignore-all
             $this->logger->error('metadata refresh failed', [
                 'exception' => $e,
             ]);
@@ -286,6 +288,7 @@ final class Cluster implements MetadataProvider
             }
 
             if ($this->controllerId === -1) {
+                // @infection-ignore-all
                 $this->logger->warning('no controller elected', [
                     'error' => ErrorCode::NotController->name,
                 ]);
@@ -314,6 +317,7 @@ final class Cluster implements MetadataProvider
             return $response;
         }
 
+        // @infection-ignore-all
         $this->logger->warning('controller unavailable, retries exhausted', [
             'error' => ErrorCode::NotController->name,
         ]);
@@ -452,6 +456,7 @@ final class Cluster implements MetadataProvider
 
             if ($topic->errorCode !== 0) {
                 $error = ErrorCode::from($topic->errorCode);
+                // @infection-ignore-all
                 $this->logger->warning('topic metadata error', [
                     'topic' => $topicName,
                     'errorCode' => $topic->errorCode,
@@ -464,6 +469,7 @@ final class Cluster implements MetadataProvider
 
                 foreach ($topic->partitions as $partition) {
                     if ($partition->leaderId < 0) {
+                        // @infection-ignore-all
                         $this->logger->warning('partition has no leader', [
                             'topic' => $topicName,
                             'partition' => $partition->partitionIndex,

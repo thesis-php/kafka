@@ -75,6 +75,7 @@ final readonly class OffsetResolver
             // The group never committed these partitions. None forbids inventing
             // a starting position from the log, so fail instead of resetting.
             if ($this->autoOffsetReset === Consumer\AutoOffsetReset::None) {
+                // @infection-ignore-all
                 $this->logger->warning('no committed offset and reset is disabled', [
                     'partitions' => array_map(
                         \strval(...),
@@ -90,6 +91,7 @@ final readonly class OffsetResolver
                 $offsets[$tp] = $reset[$tp];
             }
 
+            // @infection-ignore-all
             $this->logger->notice('no committed offset, resetting', [
                 'reset' => $this->autoOffsetReset->name,
                 'partitions' => array_map(

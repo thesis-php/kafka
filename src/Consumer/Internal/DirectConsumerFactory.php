@@ -31,6 +31,7 @@ final readonly class DirectConsumerFactory
             $this->logger,
         );
 
+        // @infection-ignore-all
         $logger = $this->logger->with([
             'component' => 'direct-consumer',
             'topics' => implode(', ', $topics),

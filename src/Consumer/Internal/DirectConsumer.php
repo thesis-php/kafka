@@ -107,6 +107,7 @@ final class DirectConsumer implements Consumer
         $offsets = $this->offsets->list($partitions, $metadata, $cancellation);
         $this->consumer->start($offsets, $cancellation);
 
+        // @infection-ignore-all
         $this->logger->debug('consumer started', [
             'topics' => $this->topics,
         ]);
