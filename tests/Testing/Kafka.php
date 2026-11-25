@@ -20,6 +20,7 @@ use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\Connection;
 use Thesis\Kafka\Internal\ConnectionFactory;
 use Thesis\Kafka\Internal\ContextLogger;
+use Thesis\Kafka\Internal\NegotiatedVersions;
 use Thesis\Kafka\Producer;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Generated;
@@ -39,6 +40,11 @@ final readonly class Kafka
         'kafka-1:9092',
         'kafka-2:9092',
         'kafka-3:9092',
+    ];
+
+    /** @var non-empty-list<non-empty-string> */
+    public const array KAFKA_4_SEEDS = [
+        'kafka-4-standalone:9092',
     ];
     private const int DEFAULT_WAIT_SECONDS = 10;
     private const float POLL_SECONDS = 0.5;
@@ -72,6 +78,21 @@ final readonly class Kafka
     public static function connect(string ...$seeds): Setup
     {
         return new Setup($seeds === [] ? self::SEEDS : array_values($seeds));
+    }
+
+    /**
+     * A data provider that runs one test on the main test cluster (Kafka 3.9)
+     * and on the Kafka 4.x broker. The test gets a {@see Setup} and calls
+     * test() on it. The name of the data set says which broker failed.
+     *
+     * @return array<non-empty-string, array{Setup}>
+     */
+    public static function versions(): array
+    {
+        return [
+            'Kafka 3.9' => [self::connect()],
+            'Kafka 4.x' => [self::connect(...self::KAFKA_4_SEEDS)],
+        ];
     }
 
     /**
@@ -109,14 +130,24 @@ final readonly class Kafka
 
     /**
      * Creates a topic and returns when every broker sees all its partitions
-     * with a leader.
+     * with a leader. Without a name the topic gets a unique name.
      *
      * @param positive-int $partitions
+     * @param array<non-empty-string, string> $configs topic configs, for example max.message.bytes
+     * @param ?non-empty-string $name the kit deletes this topic at the end too
      * @return non-empty-string
      */
-    public function topic(int $partitions = 1, ?TimeSpan $timeout = null): string
-    {
-        $topic = $this->topicName();
+    public function topic(
+        int $partitions = 1,
+        ?TimeSpan $timeout = null,
+        array $configs = [],
+        ?string $name = null,
+    ): string {
+        if ($name !== null) {
+            $this->resources->addTopic($name);
+        }
+
+        $topic = $name ?? $this->topicName();
 
         $response = $this->client->request(
             new Generated\CreateTopicsRequest(
@@ -126,7 +157,11 @@ final readonly class Kafka
                         numPartitions: $partitions,
                         replicationFactor: 1,
                         assignments: [],
-                        configs: [],
+                        configs: array_map(
+                            static fn(string $config, string $value) => new Generated\CreateTopicsRequest\CreatableTopic\CreatableTopicConfig($config, $value),
+                            array_keys($configs),
+                            $configs,
+                        ),
                     ),
                 ],
                 timeoutMs: self::DEFAULT_WAIT_SECONDS * 1_000,
@@ -243,6 +278,29 @@ final readonly class Kafka
     public function groupId(): string
     {
         return \sprintf('thesis-group-%s', bin2hex(random_bytes(6)));
+    }
+
+    /**
+     * Returns the version of the API that the client uses with a broker of
+     * the run, or null when the broker does not support the API. It asks the
+     * broker for its versions and negotiates them as a connection does.
+     *
+     * @return ?non-negative-int
+     */
+    public function negotiatedVersion(Generated\ApiKey $apiKey): ?int
+    {
+        $response = $this->client->request(
+            new Generated\ApiVersionsRequest(
+                clientSoftwareName: 'thesis-kafka-tests',
+                clientSoftwareVersion: 'dev',
+            ),
+            $this->limit(TimeSpan::fromSeconds(self::DEFAULT_WAIT_SECONDS)),
+        );
+
+        $versions = new NegotiatedVersions();
+        $versions->seed(...$response->apiKeys);
+
+        return $versions->versionOf($apiKey);
     }
 
     /**

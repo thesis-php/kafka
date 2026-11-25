@@ -9,10 +9,12 @@ use Amp\CancelledException;
 use Amp\DeferredFuture;
 use Amp\Future;
 use Thesis\Kafka\Exception;
+use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\Protocol\ErrorCode;
+use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\TopicPartition;
 
@@ -139,9 +141,9 @@ final class IdempotencyCoordinator
             ),
         );
 
-        $error = ErrorCode::from($response->errorCode);
-        if ($error !== ErrorCode::None) {
-            throw new \RuntimeException("InitProducerId failed: {$error->name}.");
+        $errors = Errors::for($response);
+        if (!$errors->empty()) {
+            throw new ProtocolError($errors);
         }
 
         $producerId = $response->producerId;

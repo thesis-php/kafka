@@ -6,10 +6,11 @@ namespace Thesis\Kafka\Producer\Internal\Sender;
 
 use Amp\Cancellation;
 use Amp\NullCancellation;
-use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\NoAvailablePartitionLeader;
+use Thesis\Kafka\Exception\ProtocolError;
+use Thesis\Kafka\Exception\UnexpectedValue;
 use Thesis\Kafka\Exception\UnknownPartition;
 use Thesis\Kafka\Exception\UnknownTopic;
 use Thesis\Kafka\Internal\Cluster;
@@ -17,7 +18,9 @@ use Thesis\Kafka\Internal\Connection;
 use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Producer;
 use Thesis\Kafka\Producer\Internal\ReadyBatch;
+use Thesis\Kafka\Protocol\Error\PartitionError;
 use Thesis\Kafka\Protocol\ErrorCode;
+use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 
 /**
@@ -39,7 +42,7 @@ final readonly class BatchProducer
 
         while ($attempt++ < $this->config->produceAttempts) {
             try {
-                $leaderId = $this->partitionLeader(
+                [$leaderId, $topicId] = $this->partitionLeader(
                     $batch->topic,
                     $batch->partition,
                     $cancellation,
@@ -55,7 +58,7 @@ final readonly class BatchProducer
                 ]);
 
                 $response = $this->cluster->request(
-                    request: $this->createRequest($batch),
+                    request: $this->createRequest($batch, $topicId),
                     cancellation: $cancellation,
                     reply: $this->config->acks === Producer\Acks::None ? Connection\Reply::None : Connection\Reply::Expected,
                     brokerId: $leaderId,
@@ -69,9 +72,9 @@ final readonly class BatchProducer
                     return;
                 }
 
-                $partition = self::findPartitionResponse($response, $batch);
+                $partition = self::findPartitionResponse($response, $batch, $topicId);
 
-                $error = ErrorCode::from($partition->errorCode);
+                $error = ErrorCode::tryFrom($partition->errorCode) ?? ErrorCode::UnknownServerError;
 
                 if ($error === ErrorCode::None) {
                     $batch->complete(
@@ -98,9 +101,14 @@ final readonly class BatchProducer
                         'attempt' => $attempt,
                     ]);
 
-                    $batch->fail(new \RuntimeException(
-                        "Produce failed for {$batch->topic}-{$batch->partition}: {$error->name}.",
-                    ));
+                    $batch->fail(new ProtocolError(new Errors([
+                        new PartitionError(
+                            topic: $batch->topic,
+                            partition: $batch->partition,
+                            code: $error,
+                            message: $partition->errorMessage,
+                        ),
+                    ])));
 
                     return;
                 }
@@ -142,16 +150,19 @@ final readonly class BatchProducer
     }
 
     /**
+     * Returns the leader of the partition and the id of the topic.
+     * Brokers without topic ids give a nil id.
+     *
      * @param non-empty-string $topic
      * @param non-negative-int $partition
-     * @return non-negative-int
+     * @return array{non-negative-int, UuidInterface}
      * @throws Exception
      */
     private function partitionLeader(
         string $topic,
         int $partition,
         Cancellation $cancellation = new NullCancellation(),
-    ): int {
+    ): array {
         $topicMetadata = $this->cluster->metadata()->topics[$topic]
             ?? $this->cluster->refreshMetadata([$topic], $cancellation)->topics[$topic]
             ?? throw new UnknownTopic($topic);
@@ -163,15 +174,14 @@ final readonly class BatchProducer
             throw new NoAvailablePartitionLeader($topic, $partition);
         }
 
-        return $partitionMetadata->leader;
+        return [$partitionMetadata->leader, $topicMetadata->topicId];
     }
 
-    private function createRequest(ReadyBatch $ready): Generated\ProduceRequest
+    /**
+     * Sets both the name and the id. Produce v13+ sends only the id, older versions only the name.
+     */
+    private function createRequest(ReadyBatch $ready, UuidInterface $topicId): Generated\ProduceRequest
     {
-        /** @var ?UuidInterface $topicId */
-        static $topicId;
-        $topicId ??= Uuid::fromString(Uuid::NIL);
-
         return new Generated\ProduceRequest(
             transactionalId: null,
             acks: $this->config->acks->value,
@@ -194,9 +204,13 @@ final readonly class BatchProducer
     private static function findPartitionResponse(
         Generated\ProduceResponse $response,
         ReadyBatch $batch,
+        UuidInterface $topicId,
     ): Generated\ProduceResponse\TopicProduceResponse\PartitionProduceResponse {
         foreach ($response->responses as $topic) {
-            if ($topic->name !== $batch->topic) {
+            // Produce v13+ responses have the topic id and an empty name.
+            $same = $topic->name === '' ? $topic->topicId->equals($topicId) : $topic->name === $batch->topic;
+
+            if (!$same) {
                 continue;
             }
 
@@ -207,8 +221,8 @@ final readonly class BatchProducer
             }
         }
 
-        throw new \RuntimeException(
-            "Broker omitted partition {$batch->topic}-{$batch->partition} from response",
+        throw new UnexpectedValue(
+            "Broker omitted partition {$batch->topic}-{$batch->partition} from the Produce response.",
         );
     }
 }
