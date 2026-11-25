@@ -135,7 +135,9 @@ final readonly class ConnectionFailureTest
 
             Assert::same($left, []);
             Assert::same(self::classes([$failure]), [CancelledException::class], implode("\n", self::describe([$failure])));
-            Assert::true($elapsed >= 1.0 && $elapsed < 3.0, "The request failed after {$elapsed} s, the request timeout is 1 s.");
+            // The request timeout is 1 s. A timer of the event loop can fire a little
+            // early, so the lower limit has a margin. It still shows a real wait.
+            Assert::float($elapsed)->greaterThan(0.9)->lessThan(3.0);
             Assert::same($peer->accepted(), 1);
             Assert::same($peer->openConnections(), 0);
         });
