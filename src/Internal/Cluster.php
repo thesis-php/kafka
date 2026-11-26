@@ -195,7 +195,7 @@ final class Cluster implements MetadataProvider
         $this->ensureOpen();
 
         $this->metadataCallbackId ??= EventLoop::repeat(
-            $this->config->metadataMaxAge->toSeconds(),
+            $this->config->metadataMaxAge->toSeconds(3),
             function (): void {
                 // An exception must not leave the timer callback: it stops the event loop.
                 // The next tick tries again.
@@ -314,17 +314,8 @@ final class Cluster implements MetadataProvider
     ): Generated\MetadataResponse {
         $number = ++$this->metadataRequests;
 
-        try {
-            /** @var Generated\MetadataResponse $response */
-            $response = $this->doBrokerRequest($request, $cancellation);
-        } catch (\Throwable $e) {
-            // @infection-ignore-all
-            $this->logger->error('metadata refresh failed', [
-                'exception' => $e,
-            ]);
-
-            throw $e;
-        }
+        /** @var Generated\MetadataResponse $response */
+        $response = $this->doBrokerRequest($request, $cancellation);
 
         // Most MetadataResponse error codes are per-topic or
         // per-partition and don't invalidate the response as a
