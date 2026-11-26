@@ -229,6 +229,12 @@ How to read this file:
   rely on `dispose()` after `complete()` to release such callers. It does
   nothing in `amphp/pipeline` 1.2.0 and 1.2.1, which `composer.json` allows.
 
+- Planned in task 016: checked against the code after task 011.
+  "`close()` re-sends in-flight batches" is half done: a cancelled batch is
+  not sent again, but `close()` still cancels the batches in flight and
+  their futures fail with `CancelledException`. The second `close()` is a
+  no-op since task 038. Every other item of this section is still true.
+
 ## 017 Producer concurrency
 
 - **A concurrent `produce()` loses a batch.**
