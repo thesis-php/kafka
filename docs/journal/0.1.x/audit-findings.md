@@ -313,6 +313,14 @@ How to read this file:
   `continue()` of the queue iterator returns a ready value and ignores the
   cancellation. Task 021 fixed the same thing in `GroupSession` with a check
   before each push.
+- Found in task 039, from the code: the failure path of the setup in
+  `src/Consumer/Internal/DirectConsumer.php` (`setup()`) sets the state to
+  `Idle` without a check. A `close()` during the setup closes the cluster,
+  the setup fails, and `Closed` becomes `Idle`. A later `consume()` then
+  does not throw `ConsumerClosed`. The code before task 039 did the same.
+- Task 039 fixed a part of the first item: a cancelled first `consume()` of
+  a direct consumer no longer stops the setup, and the setup has the request
+  timeout of the client.
 
 ## 021 Group close and rebalance
 
@@ -396,6 +404,25 @@ How to read this file:
   request timeout, the coordinator removes the member, and the member joins
   again with a new member id. The wait is bounded now, but the member is
   still removed.
+- Found in task 039, from the code: the member id from `MemberIdRequired`
+  stays inside `JoinController::join()`. When `close()` cancels the first
+  join, `GroupConsumer::run()` still has an empty member id and sends no
+  LeaveGroup. The broker keeps the member until its session timeout ends.
+- Found in task 039, from the code: `Coordinator::request()` calls
+  `discover()` outside the `try` of its attempt loop. A failed
+  FindCoordinator (timeout, closed connection) leaves `request()` at once
+  and is not retried.
+- Found in task 039, seen on a broker: a connection that went silent after
+  it answered once is not closed by the first request timeout, because
+  something was read after that timeout started. The next request on it
+  waits one more request timeout, and only then the connection is closed.
+  `ConsumerCancellationTest::setupEndsWhenBrokerDoesNotAnswer` has to read
+  in a poll because of it. This is the rule of task 015, written here as a
+  cost of it.
+- Task 039 removed the shared future of `Coordinator::discover()`. Two
+  callers that find the coordinator at the same time now both send
+  FindCoordinator. No test covers two callers: the test kit cannot hold a
+  FindCoordinator request at a known moment.
 
 ## 024 Compression codecs
 
