@@ -43,9 +43,8 @@ final class Records
      */
     public function add(Consumer\Record ...$records): void
     {
-        $this->records = [
-            ...$this->records,
-            ...$records,
-        ];
+        foreach ($records as $record) {
+            $this->records[] = $record;
+        }
     }
 }

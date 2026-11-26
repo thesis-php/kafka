@@ -233,7 +233,9 @@ Notes:
   `brokenPeer(PeerFault::Close|Stall|Garbage)` starts a TCP server that plays
   a broken broker: it closes each connection at once, never answers, or
   answers with a frame length of 2 GiB and garbage. It does not speak the
-  Kafka protocol. `accepted()` and `openConnections()` tell how many
+  Kafka protocol. `PeerFault::CutVarint` and `PeerFault::LongVarint` answer
+  ApiVersions correctly and then answer the next request with a frame that
+  ends inside a varint, or with a varint of 11 bytes. `accepted()` and `openConnections()` tell how many
   connections it got and how many the client has not closed yet.
   `loopWorkAfter($step)` runs the step and returns the event loop work that
   the step left behind (it waits until there is none).

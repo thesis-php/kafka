@@ -40,6 +40,14 @@ How to read this file:
   a bare `\OutOfBoundsException`. Confidence: high.
 - Unverified: `Writer::writeString()` (`src/Protocol/Writer.php:77-85`)
   guards a string over 32,767 bytes only with an `assert`.
+- Found in task 010, from the code, not fixed by it: `Reader::peek()` still
+  throws a bare `\OutOfBoundsException`, and `Writer::writeString()` still
+  guards the 32,767-byte limit only with an `assert`. Both belong to
+  section 031 now.
+- Found in task 010, seen in the output of the old code:
+  `Writer::writeUnsignedVarint()` wrote one wrong byte for a negative value.
+  The new encoder writes its 64 bits in 10 bytes, as the Java client does.
+  No caller in `src/` passes a negative value.
 
 ## 011 Retriable errors and leader change
 
@@ -521,6 +529,12 @@ How to read this file:
   the futures array with a spread (lines 114-120).
 - **`Records::add()` rebuilds the array for every record.**
   `src/Consumer/Internal/Protocol/Records.php:44-50`.
+  Fixed in task 010, seen on a broker: a consumer needed about 9 s for
+  40,000 records in one batch, and 0.13 s after the fix. The large fetch
+  test of task 010 could not pass without it.
+- Found in task 010, from the code: `Kafka::consume()` of the test kit
+  (`tests/Testing/Kafka.php`) rebuilds its array of records with a spread
+  on every batch. It is quadratic in the number of batches.
 - **Extra copies of each fetched batch.**
   `src/Consumer/Internal/Protocol/RecordBatch.php`: `read`, `peek` for the
   CRC, `read` again. `array_filter` runs on every batch

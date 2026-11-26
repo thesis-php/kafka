@@ -37,7 +37,7 @@ One line per task, in the order of work:
 - [x] [021 Group close and rebalance](021-group-close-and-rebalance.md) — [556e220](https://github.com/thesis-php/kafka/commit/556e220)
 - [x] [039 Shared work in consumers and cancellation](039-shared-work-in-consumers.md) — [538347a](https://github.com/thesis-php/kafka/commit/538347a)
 - [x] [040 Metadata timer: interval and log](040-metadata-timer-details.md) — [6171caf](https://github.com/thesis-php/kafka/commit/6171caf)
-- [ ] [010 Varint and int64 without copies](010-varint-decoding.md)
+- [x] [010 Varint and int64 without copies](010-varint-decoding.md) — [e3a9669](https://github.com/thesis-php/kafka/commit/e3a9669)
 - [ ] 011 Retriable errors and leader change
 - [ ] 012 Generator: client versions and null structs
 - [ ] 016 Producer shutdown

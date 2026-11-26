@@ -10,9 +10,10 @@ use function Amp\async;
 
 /**
  * A TCP server in the test process that plays a broken broker. It accepts
- * connections and then closes them, stalls, or sends garbage, as its
- * {@see PeerFault} says. It does not speak the Kafka protocol: it checks only
- * how the client reacts to a broken peer. Create it with {@see Kafka::brokenPeer()}.
+ * connections and then closes them, stalls, sends garbage, or sends a bad
+ * varint, as its {@see PeerFault} says. It does not speak the Kafka protocol,
+ * except for one fixed ApiVersions answer: it checks only how the client
+ * reacts to a broken peer. Create it with {@see Kafka::brokenPeer()}.
  *
  * @internal
  */
@@ -29,6 +30,14 @@ final class BrokenPeer
      * The frame length that {@see PeerFault::Garbage} announces: 2 GiB.
      */
     private const int GARBAGE_FRAME_LENGTH = 1 << 31;
+
+    /**
+     * The body of an ApiVersions v4 response: no error, one key
+     * (FindCoordinator, versions 3 to 4), no throttle, no tagged fields.
+     * FindCoordinator v3 and later has a flexible response header, so the
+     * client reads a varint first.
+     */
+    private const string API_VERSIONS_BODY = "\x00\x00\x02\x00\x0A\x00\x03\x00\x04\x00\x00\x00\x00\x00\x00";
 
     public readonly Endpoint $endpoint;
 
@@ -114,6 +123,13 @@ final class BrokenPeer
                 }
             }
 
+            if ($this->fault === PeerFault::CutVarint || $this->fault === PeerFault::LongVarint) {
+                $this->answer($client, match ($this->fault) {
+                    PeerFault::CutVarint => "\x80",
+                    PeerFault::LongVarint => str_repeat("\xFF", 10) . "\x01",
+                });
+            }
+
             // Read until the client closes the connection, so the peer knows when it is gone.
             while ($client->read() !== null);
         } catch (\Throwable) {
@@ -121,6 +137,34 @@ final class BrokenPeer
         } finally {
             $client->close();
             $this->open->offsetUnset($client);
+        }
+    }
+
+    /**
+     * Answers the first request with {@see self::API_VERSIONS_BODY} and
+     * every next request with the bad body.
+     */
+    private function answer(Socket\Socket $client, string $badBody): void
+    {
+        $buffer = '';
+        $answered = 0;
+
+        while (($chunk = $client->read()) !== null) {
+            $buffer .= $chunk;
+
+            // A request frame: length, api key, api version, correlation id.
+            while (\strlen($buffer) >= 12) {
+                /** @var array{1: int} $length */
+                $length = unpack('N', $buffer);
+                if (\strlen($buffer) < 4 + $length[1]) {
+                    break;
+                }
+
+                $body = $answered++ === 0 ? self::API_VERSIONS_BODY : $badBody;
+                $client->write(pack('N', 4 + \strlen($body)) . substr($buffer, 8, 4) . $body);
+
+                $buffer = substr($buffer, 4 + $length[1]);
+            }
         }
     }
 }
