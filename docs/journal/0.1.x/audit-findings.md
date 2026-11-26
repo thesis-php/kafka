@@ -504,6 +504,12 @@ How to read this file:
   no default"), `src/Producer/Internal/TopicProducer.php` ("TopicProducer is
   dead", a user reaches it with `produce()` after `close()`), and
   `src/Producer/Internal/RecordBatch.php` (the codec does not match).
+- Found in task 040, from the code: `Consumer::consume()` (`src/Consumer.php`,
+  `@api`) can throw `Amp\CancelledException`, for example when the setup of
+  a direct consumer runs out of time, but its `@throws` does not name it.
+  PHPStan then reports `catch (CancelledException)` around a direct call as
+  a dead catch. Decide in this task whether a timeout of the setup reaches
+  the user as `CancelledException` or as a library exception.
 
 ## 026 Write and read performance
 
