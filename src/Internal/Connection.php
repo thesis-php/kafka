@@ -188,11 +188,10 @@ final class Connection
             // in all that time: no answer to this request and none to other requests.
             // The connection is probably half-open. A cancellation of the caller proves
             // nothing, so only the client's own request timeout closes the connection.
-            $timeoutStartedAt = RequestTimeout::startedAt($cancellation);
+            $timeoutStartedAt = RequestTimeout::firedSince($cancellation);
 
             if ($e instanceof CancelledException
                 && $timeoutStartedAt !== null
-                && $cancellation->isRequested()
                 && $this->lastReadAt < $timeoutStartedAt) {
                 // @infection-ignore-all
                 $this->logger->warning('connection does not answer, closing it', [

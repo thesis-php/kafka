@@ -10,10 +10,12 @@ use Amp\Future;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
+use Thesis\Kafka\Internal\RequestTimeout;
 use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
+use Thesis\Time\TimeSpan;
 use function Amp\async;
 use function Amp\delay;
 
@@ -36,12 +38,18 @@ final class Coordinator
         private readonly string $groupId,
         private readonly Cluster $cluster,
         private readonly ContextLogger $logger,
+        private readonly TimeSpan $requestTimeout,
         private readonly int $maxAttempts = 5,
     ) {}
 
     /**
+     * Each attempt has its own time limit, so a lost response cannot block the
+     * caller. The cancellation of the caller ends all attempts.
+     *
      * @template T of Generated\Response
      * @param Generated\Request<T> $request
+     * @param ?TimeSpan $hold how long the broker may hold the request before it answers.
+     *                        One attempt gets this time and the request timeout of the client.
      * @return T
      * @throws Exception
      * @throws CancelledException
@@ -50,7 +58,11 @@ final class Coordinator
     public function request(
         Generated\Request $request,
         ?Cancellation $cancellation = null,
+        ?TimeSpan $hold = null,
     ): Generated\Response {
+        $timeout = $hold === null ? $this->requestTimeout : $this->requestTimeout->add($hold);
+        $seconds = $timeout->toSeconds(3);
+
         $backoff = static fn(int $attempt) => delay(Retry\backoff($attempt), cancellation: $cancellation); // @phpstan-ignore argument.type
 
         for ($attempt = 1;; ++$attempt) {
@@ -60,7 +72,7 @@ final class Coordinator
                 /** @var T $response */
                 $response = $this->cluster->request(
                     $request,
-                    $cancellation,
+                    RequestTimeout::start($seconds, $cancellation),
                     brokerId: $brokerId,
                 );
             } catch (Exception\UnknownBroker $e) {
@@ -74,7 +86,7 @@ final class Coordinator
                 $this->cluster->refreshMetadata(cancellation: $cancellation);
                 continue;
             } catch (\Throwable $e) {
-                // Connection to the coordinator failed: it may have moved.
+                // Connection to the coordinator failed or the attempt ran out of time: it may have moved.
                 $this->invalidate($e->getMessage());
 
                 if ($attempt >= $this->maxAttempts) {
@@ -142,7 +154,7 @@ final class Coordinator
                         $this->groupId,
                     ],
                 ),
-                $cancellation,
+                RequestTimeout::start($this->requestTimeout->toSeconds(3), $cancellation),
             );
 
             $coordinator = $response->coordinators[0] ?? null;

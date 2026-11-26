@@ -18,6 +18,7 @@ use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
+use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 /**
@@ -40,16 +41,17 @@ final class GroupConsumer implements Consumer
 
     private GroupConsumer\ConsumeState $consume = GroupConsumer\ConsumeState::Idle;
 
-    /** @var Pipeline\Queue<non-empty-list<Consumer\Record>> */
+    /** @var Pipeline\Queue<GroupConsumer\Delivery> */
     private readonly Pipeline\Queue $queue;
 
-    /** @var Pipeline\ConcurrentIterator<non-empty-list<Consumer\Record>> */
+    /** @var Pipeline\ConcurrentIterator<GroupConsumer\Delivery> */
     private readonly Pipeline\ConcurrentIterator $iterator;
 
     private readonly DeferredCancellation $cancellation;
 
     public function __construct(
         private readonly Cluster $cluster,
+        private readonly TimeSpan $requestTimeout,
         private readonly ContextLogger $logger,
         private readonly AssignmentConsumer $consumer,
         private readonly Consumer\Config $config,
@@ -217,6 +219,9 @@ final class GroupConsumer implements Consumer
      * cluster connection is still open (close() drops it only after we return).
      * Static members keep their slot across restarts and don't leave.
      *
+     * The leave has the request timeout, but not more than the session timeout:
+     * after the session timeout the coordinator removes the member anyway.
+     *
      * @param string $memberId the last generation's member id, '' if never joined
      */
     private function leaveGroup(string $memberId): void
@@ -224,6 +229,11 @@ final class GroupConsumer implements Consumer
         if ($memberId === '' || $this->group->groupInstanceId !== null) {
             return;
         }
+
+        $timeout = min(
+            $this->requestTimeout->toSeconds(3),
+            $this->group->sessionTimeout->toSeconds(3),
+        );
 
         try {
             $response = $this->coordinator->request(
@@ -238,6 +248,7 @@ final class GroupConsumer implements Consumer
                         ),
                     ],
                 ),
+                new TimeoutCancellation($timeout),
             );
 
             $errors = Errors::for($response);
@@ -257,24 +268,21 @@ final class GroupConsumer implements Consumer
         Consumer\ConsumeMode $mode,
         Cancellation $cancellation,
     ): iterable {
-        $consume = function (): iterable {
-            $batch = $this->iterator->getValue();
-
-            $this->committer->mark($batch);
-
-            return $batch;
-        };
-
         try {
-            if (!$this->iterator->continue($cancellation)) {
-                return;
-            }
+            while ($this->iterator->continue($cancellation)) {
+                $delivery = $this->iterator->getValue();
 
-            yield $consume();
+                // The generation of this batch has ended: drop it.
+                if (!$delivery->session->live()) {
+                    continue;
+                }
 
-            if ($mode === Consumer\ConsumeMode::Stream) {
-                while ($this->iterator->continue($cancellation)) {
-                    yield $consume();
+                $this->committer->mark($delivery->records);
+
+                yield $delivery->records;
+
+                if ($mode === Consumer\ConsumeMode::Poll) {
+                    return;
                 }
             }
         } catch (CancelledException) {

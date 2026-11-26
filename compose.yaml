@@ -124,6 +124,35 @@ services:
         fi
         exec /opt/kafka/bin/kafka-server-start.sh /tmp/server.properties
 
+  # A single broker with a second listener that advertises 127.0.0.1:19094.
+  # A test starts a proxy on this port in the php container and gives it as
+  # the seed. Every connection of the client then goes through the proxy,
+  # also the one to the group coordinator.
+  kafka-proxied-standalone:
+    image: apache/kafka:3.9.0
+    healthcheck:
+      test: [ "CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9092'" ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 10s
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: controller,broker
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PROXIED://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-proxied-standalone:9092,PROXIED://127.0.0.1:19094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PROXIED:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-proxied-standalone:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Short session timeouts keep the tests of a silent coordinator short.
+      KAFKA_GROUP_MIN_SESSION_TIMEOUT_MS: 1000
+      CLUSTER_ID: cHJveGllZC1zdGFuZGFsbw
+
   kafka-ui:
     image: ghcr.io/kafbat/kafka-ui:latest
     ports:
