@@ -34,6 +34,8 @@ use function Amp\delay;
  */
 final readonly class GroupSession
 {
+    private DeferredCancellation $ended;
+
     public function __construct(
         private AssignmentConsumer $consumer,
         private Coordinator $coordinator,
@@ -41,10 +43,22 @@ final readonly class GroupSession
         private Consumer\GroupConfig $group,
         private Membership $membership,
         private ContextLogger $logger,
-    ) {}
+    ) {
+        $this->ended = new DeferredCancellation();
+    }
 
     /**
-     * @param Pipeline\Queue<non-empty-list<Consumer\Record>> $queue
+     * Whether the generation of this session still runs. A batch of an ended
+     * generation must not reach the user: its partition can belong to another
+     * member now, and the owner fetches it again from the committed offset.
+     */
+    public function live(): bool
+    {
+        return !$this->ended->isCancelled();
+    }
+
+    /**
+     * @param Pipeline\Queue<Delivery> $queue
      * @throws Exception
      */
     public function run(Pipeline\Queue $queue, Cancellation $cancellation): void
@@ -64,21 +78,27 @@ final readonly class GroupSession
             ),
         ]);
 
-        $rebalance = new DeferredCancellation();
         $cancel = new CompositeCancellation(
             $cancellation,
-            $rebalance->getCancellation(),
+            $this->ended->getCancellation(),
         );
 
-        $heartbeat = async($this->heartbeat(...), $rebalance, $cancel);
+        $heartbeat = async($this->heartbeat(...), $cancel);
 
         try {
-            if (\count($offsets) > 0) {
-                $this->consumer->start($offsets, $cancel);
+            try {
+                if (\count($offsets) > 0) {
+                    $this->consumer->start($offsets, $cancel);
 
-                foreach ($this->consumer->consume(Consumer\ConsumeMode::Stream, $cancel) as $batch) {
-                    $queue->push($batch);
+                    foreach ($this->consumer->consume(Consumer\ConsumeMode::Stream, $cancel) as $batch) {
+                        // A full buffer waits for the user. The end of the generation
+                        // stops this wait, so a slow user cannot delay the rebalance.
+                        $cancel->throwIfRequested();
+                        $queue->pushAsync(new Delivery($this, $batch))->ignore()->await($cancel);
+                    }
                 }
+            } catch (CancelledException) {
+                // The generation has ended. The heartbeat below tells why.
             }
 
             // The fetch loop only unblocks once $cancel is cancelled, i.e. once the
@@ -88,7 +108,7 @@ final readonly class GroupSession
         } catch (CancelledException) {
             // the outer cancellation fired.
         } finally {
-            $rebalance->cancel();
+            $this->ended->cancel();
             $this->consumer->stop();
             $heartbeat->ignore();
         }
@@ -98,7 +118,7 @@ final readonly class GroupSession
      * @throws Exception
      * @throws CancelledException
      */
-    private function heartbeat(DeferredCancellation $rebalance, Cancellation $cancellation): void
+    private function heartbeat(Cancellation $cancellation): void
     {
         $interval = $this->group->heartbeatInterval->toSeconds(3);
 
@@ -136,7 +156,7 @@ final readonly class GroupSession
                 throw new Exception\ProtocolError($errors);
             }
         } finally {
-            $rebalance->cancel();
+            $this->ended->cancel();
         }
     }
 }

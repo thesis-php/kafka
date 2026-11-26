@@ -8,7 +8,7 @@ RUN ?= $(if $(INSIDE_DEVCONTAINER),,$(DOCKER_COMPOSE) run --rm php)
 COMPOSER ?= $(RUN) composer
 TEST_SERVICES := \
 	kafka-1 kafka-2 kafka-3 \
-	kafka-4-standalone \
+	kafka-4-standalone kafka-proxied-standalone \
 	zookeeper-apiversions-legacy kafka-apiversions-legacy \
 	kafka-plain-standalone kafka-scram-256-standalone kafka-scram-512-standalone kafka-plain-reauth-standalone
 

@@ -51,6 +51,7 @@ final readonly class GroupConsumerFactory
             groupId: $group->groupId,
             cluster: $cluster,
             logger: $logger,
+            requestTimeout: $this->config->requestTimeout,
         );
 
         $consumer = new AssignmentConsumer(
@@ -89,6 +90,7 @@ final readonly class GroupConsumerFactory
 
         return new GroupConsumer(
             cluster: $cluster,
+            requestTimeout: $this->config->requestTimeout,
             logger: $logger,
             consumer: $consumer,
             config: $config,

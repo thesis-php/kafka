@@ -33,10 +33,14 @@ final class Proxy
 
     private int $accepted = 0;
 
+    /**
+     * @param int<0, 65535> $port 0 is a free port
+     */
     public function __construct(
         private readonly Endpoint $upstream,
+        int $port = 0,
     ) {
-        $this->server = Socket\listen('127.0.0.1:0');
+        $this->server = Socket\listen("127.0.0.1:{$port}");
         $this->stalled = new \SplObjectStorage();
 
         $address = $this->server->getAddress();

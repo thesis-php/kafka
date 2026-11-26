@@ -214,11 +214,22 @@ Notes:
   client uses with the broker of the run.
   `createClient(seeds:, metadataMaxAge:, connectTimeout:, requestTimeout:)`
   creates one more client with other settings. `groupConsumer(..., client:)`
-  creates the consumer on such a client. `proxy()` starts a TCP proxy to the
-  first seed broker. A client that uses `$proxy->endpoint` loses the broker
-  after `$proxy->disconnect()`. After `$proxy->stall()` the open connections
-  stay open but never answer; new connections work. `$proxy->accepted()`
-  tells how many client connections the proxy got.
+  creates the consumer on such a client. `rebalanceTimeout:`, `sessionTimeout:`
+  and `heartbeatInterval:` change the timeouts of the group (the main cluster
+  accepts a session timeout of 6 s and more, `kafka-proxied-standalone` of 1 s
+  and more). `maxWait:` shortens the wait of a fetch: a fetch that is cancelled
+  at a rebalance still holds its connection on the broker until `maxWait` ends. `groupConfig()` returns the consumer config of
+  `groupConsumer()`, for example for `subscribe()` with a group. `proxy()`
+  starts a TCP proxy to the first seed broker. A client that uses
+  `$proxy->endpoint` loses the broker after `$proxy->disconnect()`. After
+  `$proxy->stall()` the open connections stay open but never answer; new
+  connections work. `$proxy->accepted()` tells how many client connections
+  the proxy got. A client learns the addresses of the brokers from the
+  metadata, so a proxy to the main cluster is only on the path of the
+  bootstrap. To put every connection behind the proxy, also the one to the
+  group coordinator, run on the broker `kafka-proxied-standalone:9092` and
+  start `proxy(new Endpoint('kafka-proxied-standalone', 9094), 19094)`: the
+  listener on port 9094 advertises `127.0.0.1:19094`, the port of the proxy.
   `brokenPeer(PeerFault::Close|Stall|Garbage)` starts a TCP server that plays
   a broken broker: it closes each connection at once, never answers, or
   answers with a frame length of 2 GiB and garbage. It does not speak the

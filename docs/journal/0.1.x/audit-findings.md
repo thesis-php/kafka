@@ -269,6 +269,16 @@ How to read this file:
 - Unverified: partitions are always sent in the same order, so a partition
   can starve. Fetch has no client timeout (`Fetcher.php:114`).
   `RecordBatch::decode` does not check the batch length.
+- Found in task 021, seen on a broker: a Fetch that is cancelled at a
+  rebalance still holds its connection on the broker until
+  `Consumer\Config::$maxWait` ends (5 s by default). The next Fetch of the
+  member waits behind it on the same connection. Every rebalance is delayed
+  by up to `maxWait`.
+- Found in task 021, from the code: Fetch and ListOffsets (`OffsetLister`)
+  run with the cancellation of the consumer only. They have no client time
+  limit, and a half-open connection is not detected for them. Group requests
+  got such a limit in task 021 (`Internal\RequestTimeout::start()` with the
+  cancellation of the caller).
 
 ## 020 Consumer lifecycle
 
@@ -298,6 +308,11 @@ How to read this file:
 - **A fatal error leaves the autocommit timer running.**
   `src/Consumer/Internal/GroupConsumer.php:72-90, 125-127, 199-207`.
   `close()` in the idle state does not close the `Cluster`.
+- Found in task 021, seen on a broker: `AssignmentConsumer::iterate()` still
+  returns values that are ready after its cancellation has fired, because
+  `continue()` of the queue iterator returns a ready value and ignores the
+  cancellation. Task 021 fixed the same thing in `GroupSession` with a check
+  before each push.
 
 ## 021 Group close and rebalance
 
@@ -327,6 +342,8 @@ How to read this file:
   `complete()` in `amphp/pipeline` 1.2.0 applies to the fix of the `push()`
   in `GroupSession`. Run the tests with the lowest dependencies
   (`make install-lowest`).
+- Found in task 021: all items of this section are fixed there, except "A
+  dead fetcher is not noticed by the session" (task 019).
 
 ## 022 Group commits
 
@@ -342,6 +359,11 @@ How to read this file:
   can move the offset of a partition that another member owns now.
 - Test race, not a library bug: `twoMembersEachOwnOnePartition` can read
   partition 0 twice when member A joins alone first.
+- Found in task 021, from the code: with autocommit on, `close()` commits
+  after the session has ended (`GroupConsumer::run()`). When the coordinator
+  does not answer, this commit can take up to 5 attempts of
+  `Config::$requestTimeout` each. The leave request is bounded since task
+  021, this commit is not.
 
 ## 009 Topic ids in offset commit
 
@@ -368,6 +390,12 @@ How to read this file:
   (`GroupSession.php:52`).
 - Difference from Java: range and round-robin do not sort static members by
   instance id first.
+- Found in task 021, seen on a broker: JoinGroup and SyncGroup use their own
+  connection (`Connection\Kind::Group`). It is idle between rebalances. When
+  it is half-open, the next JoinGroup waits the rebalance timeout plus the
+  request timeout, the coordinator removes the member, and the member joins
+  again with a new member id. The wait is bounded now, but the member is
+  still removed.
 
 ## 024 Compression codecs
 
@@ -483,18 +511,17 @@ How to read this file:
 
 Found while tasks 013, 014 and 015 were implemented. No task covered them.
 
-- **A slow but legal request looks like a dead connection.** Mostly solved
-  in task 015 itself, before it was merged. The first rule compared the
-  silence of a connection with `Config::$requestTimeout`, so a long Fetch
-  (`Consumer\Config::$maxWait`) or JoinGroup
-  (`Consumer\GroupConfig::$rebalanceTimeout`) could close a healthy
-  connection. The final rule closes a connection only when the client's own
-  request timeout (`Internal\RequestTimeout`) has fired and nothing was read
-  since it started. Fetch and JoinGroup pass their own cancellation, so they
-  never close a connection now. What is left: a caller that passes its own
-  cancellation gets no detection of a half-open connection at all. Every
-  request of a consumer on such a connection waits for its own cancellation.
-  From the code. Not reproduced.
+- **A slow but legal request looks like a dead connection.** Solved in tasks
+  015 and 021. A connection is closed only when a request timeout that the
+  client itself started (`Internal\RequestTimeout`) has fired and nothing
+  was read since it started. Group requests have such a timeout since task
+  021: the request timeout, plus the rebalance timeout for JoinGroup and
+  SyncGroup. What is left is in section 019: Fetch and ListOffsets have no
+  client time limit.
+- **Two metadata requests of the group consumer have no time limit.**
+  `Cluster::lookup()` in `JoinController::balance()` and `refreshMetadata()`
+  in the `UnknownBroker` branch of `Coordinator::request()` run with the
+  cancellation of the consumer only. Found in task 021, from the code.
 - **`Cluster::$topicAnswers` only grows.** `src/Internal/Cluster.php` keeps
   the number of the last metadata answer for every topic name it ever saw,
   also for deleted topics. A client that works with many short-lived topics

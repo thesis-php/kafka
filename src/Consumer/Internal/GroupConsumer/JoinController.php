@@ -146,9 +146,11 @@ final readonly class JoinController
             reason: null,
         );
 
+        // The coordinator holds a JoinGroup until every member has joined, up to the rebalance timeout.
         return $this->coordinator->request(
             $request,
             $cancellation,
+            hold: $this->group->rebalanceTimeout,
         );
     }
 
@@ -173,9 +175,12 @@ final readonly class JoinController
             assignments: $assignments,
         );
 
+        // The coordinator holds the SyncGroup of a follower until the leader has sent
+        // the assignment. The leader has the rebalance timeout for it.
         return $this->coordinator->request(
             $request,
             $cancellation,
+            hold: $this->group->rebalanceTimeout,
         );
     }
 

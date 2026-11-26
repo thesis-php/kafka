@@ -261,21 +261,56 @@ final readonly class Kafka
         bool $autocommit = false,
         ?TimeSpan $autocommitInterval = null,
         ?Client $client = null,
+        ?TimeSpan $rebalanceTimeout = null,
+        ?TimeSpan $sessionTimeout = null,
+        ?TimeSpan $heartbeatInterval = null,
+        ?TimeSpan $maxWait = null,
     ): Consumer {
-        $consumer = ($client ?? $this->client)->createConsumer($topics, new Consumer\Config(
-            autoOffsetReset: AutoOffsetReset::Earliest,
-            group: new Consumer\GroupConfig(
-                groupId: $groupId ?? $this->groupId(),
-                sessionTimeout: TimeSpan::fromSeconds(6),
-                heartbeatInterval: TimeSpan::fromSeconds(1),
-                autocommitInterval: $autocommitInterval,
-                rebalanceTimeout: TimeSpan::fromSeconds(6),
-                autocommit: $autocommit,
-            ),
+        $consumer = ($client ?? $this->client)->createConsumer($topics, $this->groupConfig(
+            groupId: $groupId,
+            autocommit: $autocommit,
+            autocommitInterval: $autocommitInterval,
+            rebalanceTimeout: $rebalanceTimeout,
+            sessionTimeout: $sessionTimeout,
+            heartbeatInterval: $heartbeatInterval,
+            maxWait: $maxWait,
         ));
         $this->resources->addCloser('group consumer', $consumer->close(...));
 
         return $consumer;
+    }
+
+    /**
+     * Returns the consumer config of {@see groupConsumer()}: the earliest
+     * offset and short session timeouts. Use it for {@see subscribe()} with a group.
+     *
+     * @param ?non-empty-string $groupId null means a new unique group
+     * @param ?TimeSpan $rebalanceTimeout 6 seconds by default
+     * @param ?TimeSpan $sessionTimeout 6 seconds by default, the minimum of the main cluster
+     * @param ?TimeSpan $heartbeatInterval 1 second by default
+     * @param ?TimeSpan $maxWait how long a fetch waits for records, the default of the consumer config
+     */
+    public function groupConfig(
+        ?string $groupId = null,
+        bool $autocommit = false,
+        ?TimeSpan $autocommitInterval = null,
+        ?TimeSpan $rebalanceTimeout = null,
+        ?TimeSpan $sessionTimeout = null,
+        ?TimeSpan $heartbeatInterval = null,
+        ?TimeSpan $maxWait = null,
+    ): Consumer\Config {
+        return new Consumer\Config(
+            maxWait: $maxWait,
+            autoOffsetReset: AutoOffsetReset::Earliest,
+            group: new Consumer\GroupConfig(
+                groupId: $groupId ?? $this->groupId(),
+                sessionTimeout: $sessionTimeout ?? TimeSpan::fromSeconds(6),
+                heartbeatInterval: $heartbeatInterval ?? TimeSpan::fromSeconds(1),
+                autocommitInterval: $autocommitInterval,
+                rebalanceTimeout: $rebalanceTimeout ?? TimeSpan::fromSeconds(6),
+                autocommit: $autocommit,
+            ),
+        );
     }
 
     /**
@@ -361,13 +396,16 @@ final readonly class Kafka
     }
 
     /**
-     * Starts a TCP proxy to the first seed broker. A client that uses the
-     * endpoint of the proxy loses the broker when the proxy is closed.
-     * The kit closes the proxy at the end.
+     * Starts a TCP proxy to the first seed broker, or to the upstream. A client
+     * that uses the endpoint of the proxy loses the broker when the proxy is
+     * closed. The kit closes the proxy at the end.
+     *
+     * @param ?Config\Endpoint $upstream the first seed broker by default
+     * @param int<0, 65535> $port the local port of the proxy, 0 is a free port
      */
-    public function proxy(): Proxy
+    public function proxy(?Config\Endpoint $upstream = null, int $port = 0): Proxy
     {
-        $proxy = new Proxy($this->config->seeds[0]);
+        $proxy = new Proxy($upstream ?? $this->config->seeds[0], $port);
         $this->resources->addCloser('proxy', $proxy->close(...));
 
         return $proxy;
