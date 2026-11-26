@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Protocol;
 
-use BcMath\Number;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Endian;
-use Thesis\Varint;
 
 /**
  * Writes Kafka wire-format primitives into an in-memory byte buffer.
@@ -44,7 +42,7 @@ final class Writer implements
 
     public function writeInt64(int $value): void
     {
-        $this->buffer .= Endian\Order::Network->packInt64(new Number($value));
+        $this->buffer .= pack('J', $value);
     }
 
     public function writeUint16(int $value): void
@@ -62,16 +60,23 @@ final class Writer implements
         $this->writeInt8($value ? 1 : 0);
     }
 
+    /**
+     * A negative value is written as its 64 bits, in 10 bytes.
+     */
     public function writeUnsignedVarint(int $value): void
     {
-        $this->buffer .= Varint\BcMath::Codec->encodeVarint(new Number($value));
+        while (($value & ~0x7F) !== 0) {
+            $this->buffer .= \chr(($value & 0x7F) | 0x80);
+            // The shift is logical, so a negative value ends after 10 bytes.
+            $value = ($value >> 7) & (PHP_INT_MAX >> 6);
+        }
+
+        $this->buffer .= \chr($value);
     }
 
     public function writeVarint(int $value): void
     {
-        $this->buffer .= Varint\BcMath::Codec->encodeVarint(
-            Varint\BcMath::Codec->encodeZigZag(new Number($value)),
-        );
+        $this->writeUnsignedVarint(($value << 1) ^ ($value >> 63));
     }
 
     public function writeString(string $value): void

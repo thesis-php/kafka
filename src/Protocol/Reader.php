@@ -9,7 +9,6 @@ use Ramsey\Uuid\UuidInterface;
 use Thesis\Endian;
 use Thesis\Kafka\Exception\UnexpectedEof;
 use Thesis\Kafka\Exception\UnexpectedValue;
-use Thesis\Varint;
 
 /**
  * Reads Kafka wire-format primitives from an in-memory byte buffer.
@@ -83,7 +82,10 @@ final class Reader
 
     public function readInt64(): int
     {
-        return (int) Endian\Order::Network->unpackInt64($this->read(8))->value;
+        /** @var array{1: int} $value */
+        $value = unpack('J', $this->read(8));
+
+        return $value[1];
     }
 
     /**
@@ -106,28 +108,34 @@ final class Reader
 
     /**
      * @return non-negative-int
+     * @throws UnexpectedEof
+     * @throws UnexpectedValue
      */
     public function readUnsignedVarint(): int
     {
-        $buffer = substr($this->buffer, $this->offset);
-        \assert($buffer !== '');
+        $at = $this->offset;
+        $value = $this->readRawVarint();
+        if ($value < 0) {
+            throw new UnexpectedValue(\sprintf(
+                'Unsigned varint at offset %d is larger than %d',
+                $at,
+                PHP_INT_MAX,
+            ));
+        }
 
-        $sized = Varint\BcMath::Codec->decodeVarintSized($buffer);
-        $this->offset += $sized->size;
-
-        /** @var non-negative-int */
-        return (int) $sized->value->value;
+        return $value;
     }
 
+    /**
+     * @throws UnexpectedEof
+     * @throws UnexpectedValue
+     */
     public function readVarint(): int
     {
-        $buffer = substr($this->buffer, $this->offset);
-        \assert($buffer !== '');
+        $value = $this->readRawVarint();
 
-        $sized = Varint\BcMath::Codec->decodeVarintSized($buffer);
-        $this->offset += $sized->size;
-
-        return (int) Varint\BcMath::Codec->decodeZigZag($sized->value)->value;
+        // The shift is logical: the zigzag value uses all 64 bits.
+        return (($value >> 1) & PHP_INT_MAX) ^ -($value & 1);
     }
 
     public function readString(): string
@@ -385,6 +393,45 @@ final class Reader
 
         /** @var non-empty-string */
         return $chunk;
+    }
+
+    /**
+     * Reads the 64 bits of a varint without zigzag. The bits are read from the
+     * buffer in place: a copy of the rest of the buffer makes decoding quadratic.
+     *
+     * @throws UnexpectedEof
+     * @throws UnexpectedValue
+     */
+    private function readRawVarint(): int
+    {
+        $at = $this->offset;
+        $value = 0;
+
+        for ($shift = 0;; $shift += 7) {
+            if ($this->offset >= $this->length) {
+                throw new UnexpectedEof(\sprintf(
+                    'Varint at offset %d ends after %d byte(s)',
+                    $at,
+                    $this->offset - $at,
+                ));
+            }
+
+            $byte = \ord($this->buffer[$this->offset++]);
+
+            // The 10th byte holds only the highest bit of 64. More bits or more bytes do not fit.
+            if ($shift === 63 && $byte > 1) {
+                throw new UnexpectedValue(\sprintf(
+                    'Varint at offset %d does not fit in 64 bits',
+                    $at,
+                ));
+            }
+
+            $value |= ($byte & 0x7F) << $shift;
+
+            if ($byte < 0x80) {
+                return $value;
+            }
+        }
     }
 
     /**

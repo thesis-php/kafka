@@ -26,4 +26,16 @@ enum PeerFault
      * {@see BrokenPeer::GARBAGE_BYTES} bytes of garbage.
      */
     case Garbage;
+
+    /**
+     * Answers ApiVersions with FindCoordinator v3-v4. Then it answers the
+     * next request with a frame that ends inside the first varint.
+     */
+    case CutVarint;
+
+    /**
+     * Answers ApiVersions with FindCoordinator v3-v4. Then it answers the
+     * next request with a frame whose first varint has 11 bytes.
+     */
+    case LongVarint;
 }
