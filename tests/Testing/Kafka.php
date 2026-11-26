@@ -234,14 +234,15 @@ final readonly class Kafka
 
     /**
      * @param non-empty-string|non-empty-list<non-empty-string> $topics
+     * @param ?Client $client the client of the consumer, the client of the run by default
      */
-    public function directConsumer(string|array $topics, Consumer\Config $config = new Consumer\Config()): Consumer
+    public function directConsumer(string|array $topics, Consumer\Config $config = new Consumer\Config(), ?Client $client = null): Consumer
     {
         if ($config->group !== null) {
             throw new \InvalidArgumentException('A direct consumer has no group. Use groupConsumer().');
         }
 
-        $consumer = $this->client->createConsumer($topics, $config);
+        $consumer = ($client ?? $this->client)->createConsumer($topics, $config);
         $this->resources->addCloser('direct consumer', $consumer->close(...));
 
         return $consumer;
@@ -526,9 +527,8 @@ final readonly class Kafka
 
         /** @var \Closure(Cancellation): list<Consumer\Record> $probe */
         $probe = static function (Cancellation $cancellation) use ($consumer, &$records): array {
-            // A direct consumer runs its setup under the cancellation of the first consume().
-            // A short poll window would cut the setup, so consume() gets no cancellation:
-            // it reads for the poll timeout of the consumer. The wait still ends at its limit.
+            // consume() gets no cancellation: it reads for the poll timeout of the
+            // consumer. The wait still ends at its limit.
             $read = async(static function () use ($consumer, &$records): void {
                 foreach ($consumer->consume(ConsumeMode::Poll) as $batch) {
                     $records = [...$records, ...$batch];

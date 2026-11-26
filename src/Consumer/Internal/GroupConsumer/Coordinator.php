@@ -6,7 +6,6 @@ namespace Thesis\Kafka\Consumer\Internal\GroupConsumer;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\Future;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
@@ -16,7 +15,6 @@ use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Time\TimeSpan;
-use function Amp\async;
 use function Amp\delay;
 
 /**
@@ -26,9 +24,6 @@ final class Coordinator
 {
     /** @var ?non-negative-int */
     private ?int $brokerId = null;
-
-    /** @var ?Future<non-negative-int> */
-    private ?Future $future = null;
 
     /**
      * @param non-empty-string $groupId
@@ -86,6 +81,11 @@ final class Coordinator
                 $this->cluster->refreshMetadata(cancellation: $cancellation);
                 continue;
             } catch (\Throwable $e) {
+                // The caller has stopped waiting. This says nothing about the coordinator.
+                if ($cancellation?->isRequested() === true) {
+                    throw $e;
+                }
+
                 // Connection to the coordinator failed or the attempt ran out of time: it may have moved.
                 $this->invalidate($e->getMessage());
 
@@ -121,21 +121,9 @@ final class Coordinator
      */
     private function discover(?Cancellation $cancellation = null): int
     {
-        if ($this->brokerId !== null) {
-            return $this->brokerId;
-        }
-
-        try {
-            if ($this->future === null) {
-                /** @var Future<non-negative-int> $future */
-                $future = async($this->findCoordinator(...), $cancellation);
-                $this->future = $future;
-            }
-
-            return $this->brokerId = $this->future->await($cancellation);
-        } finally {
-            $this->future = null;
-        }
+        // Each caller finds the coordinator with its own cancellation. Two callers
+        // may both send FindCoordinator. This is rare and harmless.
+        return $this->brokerId ??= $this->findCoordinator($cancellation);
     }
 
     /**
