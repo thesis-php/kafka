@@ -47,7 +47,7 @@ final readonly class DescribeTopicPartitionsRequest implements Request
             $item->encode($writer, $version);
         }
         $writer->writeInt32($this->responsePartitionLimit);
-        $writer->writeBool($this->cursor !== null);
+        $writer->writeInt8($this->cursor === null ? -1 : 1);
         $this->cursor?->encode($writer, $version);
         $writer->writeTaggedFields($this->unknownTags);
     }

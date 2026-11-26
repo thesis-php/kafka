@@ -20,6 +20,7 @@ final readonly class Message
         public Type $type,
         public string $name,
         public VersionRange $validVersions = new VersionRange(),
+        public bool $latestVersionUnstable = false,
         public VersionRange $flexibleVersions = new VersionRange(),
         public ?int $apiKey = null,
         public array $listeners = [],

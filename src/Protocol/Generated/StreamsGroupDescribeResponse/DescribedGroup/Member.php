@@ -68,7 +68,7 @@ final readonly class Member implements Encodable, Decodable
         $writer->writeCompactString($this->clientHost);
         $writer->writeInt32($this->topologyEpoch);
         $writer->writeCompactString($this->processId);
-        $writer->writeBool($this->userEndpoint !== null);
+        $writer->writeInt8($this->userEndpoint === null ? -1 : 1);
         $this->userEndpoint?->encode($writer, $version);
         $writer->writeCompactArrayLength(\count($this->clientTags));
         foreach ($this->clientTags as $item) {
@@ -99,7 +99,7 @@ final readonly class Member implements Encodable, Decodable
         $clientHost = $reader->readCompactString();
         $topologyEpoch = $reader->readInt32();
         $processId = $reader->readCompactString();
-        $userEndpoint = $reader->readBool() ? Endpoint::decode($reader, $version) : null;
+        $userEndpoint = $reader->readInt8() < 0 ? null : Endpoint::decode($reader, $version);
         $clientTagsCount = $reader->readCompactArrayLength();
         $clientTags = [];
         for ($clientTagsIndex = 0; $clientTagsIndex < $clientTagsCount; ++$clientTagsIndex) {

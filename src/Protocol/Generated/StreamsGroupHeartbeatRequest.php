@@ -77,7 +77,7 @@ final readonly class StreamsGroupHeartbeatRequest implements Request
         $writer->writeCompactNullableString($this->instanceId);
         $writer->writeCompactNullableString($this->rackId);
         $writer->writeInt32($this->rebalanceTimeoutMs);
-        $writer->writeBool($this->topology !== null);
+        $writer->writeInt8($this->topology === null ? -1 : 1);
         $this->topology?->encode($writer, $version);
         $writer->writeCompactNullableArrayLength($this->activeTasks === null ? null : \count($this->activeTasks));
         if ($this->activeTasks !== null) {
@@ -98,7 +98,7 @@ final readonly class StreamsGroupHeartbeatRequest implements Request
             }
         }
         $writer->writeCompactNullableString($this->processId);
-        $writer->writeBool($this->userEndpoint !== null);
+        $writer->writeInt8($this->userEndpoint === null ? -1 : 1);
         $this->userEndpoint?->encode($writer, $version);
         $writer->writeCompactNullableArrayLength($this->clientTags === null ? null : \count($this->clientTags));
         if ($this->clientTags !== null) {

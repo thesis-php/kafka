@@ -44,13 +44,28 @@ final readonly class Generator
         'records' => 1,
     ];
 
+    /**
+     * The last request version that a client may use, by API key name.
+     * Later versions are for brokers only. The schemas say it only in
+     * comments, so the numbers come from the Java client
+     * (LAST_CLIENT_VERSION in its request classes).
+     * Check this list after `make sync-schemas`.
+     */
+    private const array LAST_CLIENT_VERSIONS = [
+        'AddPartitionsToTxn' => 3,
+    ];
+
     private TreeMapper $mapper;
 
+    /**
+     * @param array<non-empty-string, non-negative-int> $lastClientVersions
+     */
     public function __construct(
         private Writer $fs,
         private Generator\NamespaceGenerator $protocolNs,
         private Generator\NamespaceGenerator $generatedNs,
         ?TreeMapper $mapper = null,
+        private array $lastClientVersions = self::LAST_CLIENT_VERSIONS,
     ) {
         $this->mapper = $mapper ?? new MapperBuilder()
             ->allowSuperfluousKeys()
@@ -99,7 +114,7 @@ final readonly class Generator
                         name: $name,
                         value: $message->apiKey,
                         min: $message->validVersions->min,
-                        max: $message->validVersions->max,
+                        max: $this->lastClientVersion($name, $message),
                         flexibleVersions: $message->flexibleVersions,
                         listeners: $listenersForKey,
                     ));
@@ -115,8 +130,48 @@ final readonly class Generator
             }
         }
 
+        foreach (array_keys($this->lastClientVersions) as $name) {
+            if (!array_any($apiKeys->keys, static fn(Schema\ApiKey $key) => $key->name === $name)) {
+                throw new \LogicException("The last client version is set for API key '{$name}', but no request schema has this API key.");
+            }
+        }
+
         $this->generateListener(array_keys($listeners));
         $this->generateApiKey($apiKeys);
+    }
+
+    /**
+     * @param non-empty-string $name
+     * @return non-negative-int
+     */
+    private function lastClientVersion(string $name, Schema\Message $request): int
+    {
+        $min = $request->validVersions->min;
+        $max = $request->validVersions->max;
+        \assert($min !== null && $max !== null);
+
+        $last = $max;
+
+        // A broker does not offer an unstable version by default, and the Java client does not use it.
+        if ($request->latestVersionUnstable) {
+            if ($max <= $min) {
+                throw new \LogicException("API key '{$name}' has only one valid version, and it is unstable.");
+            }
+
+            $last = $max - 1;
+        }
+
+        if (isset($this->lastClientVersions[$name])) {
+            $lastClientVersion = $this->lastClientVersions[$name];
+
+            if ($lastClientVersion < $min || $lastClientVersion > $max) {
+                throw new \LogicException("The last client version {$lastClientVersion} of API key '{$name}' is outside of its valid versions {$min}-{$max}.");
+            }
+
+            $last = min($last, $lastClientVersion);
+        }
+
+        return $last;
     }
 
     private function generateRequestInterface(): void
@@ -727,6 +782,13 @@ final readonly class Generator
             static fn(Schema\Field $field): bool => !$field->taggedVersions->isNone(),
         );
 
+        foreach ($tagged as $field) {
+            // Kafka uses another null marker for a struct in a tagged field. No schema needs it yet.
+            if (self::isStruct($field->type) && !$field->nullableVersions->intersect($field->taggedVersions)->isNone()) {
+                throw new \LogicException("Field '{$field->name}' is a nullable struct in a tagged field. The generator does not support it.");
+            }
+        }
+
         usort(
             $tagged,
             static fn(Schema\Field $left, Schema\Field $right): int => ($left->tag ?? -1) <=> ($right->tag ?? -1),
@@ -1275,8 +1337,9 @@ final readonly class Generator
             ];
         }
 
+        // Kafka writes -1 before a null struct and 1 before a present one.
         $nullable = static fn(Expr $v): array => [
-            Ast::stmt(Ast::call($ctx->writer, 'writeBool', Ast::neq($v, Ast::null()))),
+            Ast::stmt(Ast::call($ctx->writer, 'writeInt8', Ast::ternary(Ast::eq($v, Ast::null()), Ast::int(-1), Ast::int(1)))),
             Ast::stmt(Ast::nullsafeCall($v, 'encode', $ctx->writer, Ast::var('version'))),
         ];
 
@@ -1465,10 +1528,11 @@ final readonly class Generator
         $nullable = static fn(string $targetVar): array => [
             Ast::assign(
                 Ast::var($targetVar),
+                // Kafka reads any negative marker as null.
                 Ast::ternary(
-                    Ast::call($ctx->reader, 'readBool'),
-                    Ast::staticCall($structRef, 'decode', $ctx->reader, Ast::var('version')),
+                    Ast::lt(Ast::call($ctx->reader, 'readInt8'), Ast::int(0)),
                     Ast::null(),
+                    Ast::staticCall($structRef, 'decode', $ctx->reader, Ast::var('version')),
                 ),
             ),
         ];
@@ -1809,6 +1873,11 @@ final readonly class Generator
         }
 
         return false;
+    }
+
+    private static function isStruct(string $type): bool
+    {
+        return !str_starts_with($type, '[]') && !isset(self::SCALARS[$type]) && !isset(self::PREFIXED[$type]);
     }
 
     /**
