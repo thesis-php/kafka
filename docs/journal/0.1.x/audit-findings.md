@@ -99,6 +99,11 @@ How to read this file:
 - Unverified: when a nullable string is absent in a version and has no
   default, the generator uses `null` (`Generator.php:1496`); Kafka uses `""`.
 
+- Planned in task 012: the last item is true. Kafka gives `""`, an empty
+  array or an empty struct for such a field, and the generator gives `null`.
+  It affects only decode. We keep `null` on purpose. Task 012 does not
+  change it.
+
 ## 013 Topic lookup in metadata
 
 - **A new topic is reported as unknown.** `src/Internal/Cluster.php:75-82`,

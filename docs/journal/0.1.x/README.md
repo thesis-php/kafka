@@ -39,7 +39,7 @@ One line per task, in the order of work:
 - [x] [040 Metadata timer: interval and log](040-metadata-timer-details.md) — [6171caf](https://github.com/thesis-php/kafka/commit/6171caf)
 - [x] [010 Varint and int64 without copies](010-varint-decoding.md) — [e3a9669](https://github.com/thesis-php/kafka/commit/e3a9669)
 - [x] [011 Retriable errors and leader change](011-retriable-errors.md) — [01d14e0](https://github.com/thesis-php/kafka/commit/01d14e0)
-- [ ] 012 Generator: client versions and null structs
+- [ ] [012 Generator: client versions and null structs](012-generator-client-versions.md)
 - [ ] 016 Producer shutdown
 - [ ] 017 Producer concurrency
 - [ ] 018 Idempotent producer after a failed batch
