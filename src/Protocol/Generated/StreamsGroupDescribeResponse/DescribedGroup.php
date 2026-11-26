@@ -50,7 +50,7 @@ final readonly class DescribedGroup implements Encodable, Decodable
         $writer->writeCompactString($this->groupState);
         $writer->writeInt32($this->groupEpoch);
         $writer->writeInt32($this->assignmentEpoch);
-        $writer->writeBool($this->topology !== null);
+        $writer->writeInt8($this->topology === null ? -1 : 1);
         $this->topology?->encode($writer, $version);
         $writer->writeCompactArrayLength(\count($this->members));
         foreach ($this->members as $item) {
@@ -69,7 +69,7 @@ final readonly class DescribedGroup implements Encodable, Decodable
         $groupState = $reader->readCompactString();
         $groupEpoch = $reader->readInt32();
         $assignmentEpoch = $reader->readInt32();
-        $topology = $reader->readBool() ? DescribedGroup\Topology::decode($reader, $version) : null;
+        $topology = $reader->readInt8() < 0 ? null : DescribedGroup\Topology::decode($reader, $version);
         $membersCount = $reader->readCompactArrayLength();
         $members = [];
         for ($membersIndex = 0; $membersIndex < $membersCount; ++$membersIndex) {

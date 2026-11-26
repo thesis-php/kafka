@@ -43,7 +43,7 @@ final readonly class ConsumerGroupHeartbeatResponse implements Response
         $memberId = $reader->readCompactNullableString();
         $memberEpoch = $reader->readInt32();
         $heartbeatIntervalMs = $reader->readInt32();
-        $assignment = $reader->readBool() ? ConsumerGroupHeartbeatResponse\Assignment::decode($reader, $version) : null;
+        $assignment = $reader->readInt8() < 0 ? null : ConsumerGroupHeartbeatResponse\Assignment::decode($reader, $version);
         $unknownTags = $reader->readTaggedFields();
         return new self($throttleTimeMs, $errorCode, $errorMessage, $memberId, $memberEpoch, $heartbeatIntervalMs, $assignment, $unknownTags);
     }

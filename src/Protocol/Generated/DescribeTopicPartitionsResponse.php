@@ -36,7 +36,7 @@ final readonly class DescribeTopicPartitionsResponse implements Response
             $item = DescribeTopicPartitionsResponse\DescribeTopicPartitionsResponseTopic::decode($reader, $version);
             $topics[] = $item;
         }
-        $nextCursor = $reader->readBool() ? DescribeTopicPartitionsResponse\Cursor::decode($reader, $version) : null;
+        $nextCursor = $reader->readInt8() < 0 ? null : DescribeTopicPartitionsResponse\Cursor::decode($reader, $version);
         $unknownTags = $reader->readTaggedFields();
         return new self($throttleTimeMs, $topics, $nextCursor, $unknownTags);
     }

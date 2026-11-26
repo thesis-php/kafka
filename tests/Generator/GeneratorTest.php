@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Generator;
 
 use Testo\Assert;
+use Testo\Expect;
 use Testo\Test;
 use Thesis\Kafka\Generator\Generator\NamespaceGenerator;
 use Thesis\Kafka\Generator\SchemaSource\StaticSource;
 use Thesis\Kafka\Generator\Writer\InMemoryWriter;
+use Thesis\Kafka\Protocol\Generated\ApiKey;
 
 final class GeneratorTest
 {
@@ -1003,6 +1005,241 @@ final class GeneratorTest
         );
     }
 
+    #[Test]
+    public function keepsBrokerOnlyVersionsOutOfClientRange(): void
+    {
+        $apiKey = self::generate(self::sampleRequest('0-5'), ['Sample' => 3])->get('ApiKey.php');
+
+        Assert::string($apiKey ?? '')->contains('self::Sample => new VersionRange(0, 3),');
+    }
+
+    #[Test]
+    public function failsOnLastClientVersionOfUnknownApiKey(): void
+    {
+        Expect::exception(\LogicException::class)
+            ->withMessage("The last client version is set for API key 'Missing', but no request schema has this API key.");
+
+        self::generate(self::sampleRequest('0-5'), ['Sample' => 3, 'Missing' => 1]);
+    }
+
+    #[Test]
+    public function failsOnLastClientVersionAboveValidVersions(): void
+    {
+        Expect::exception(\LogicException::class)
+            ->withMessage("The last client version 6 of API key 'Sample' is outside of its valid versions 0-5.");
+
+        self::generate(self::sampleRequest('0-5'), ['Sample' => 6]);
+    }
+
+    #[Test]
+    public function failsOnLastClientVersionBelowValidVersions(): void
+    {
+        Expect::exception(\LogicException::class)
+            ->withMessage("The last client version 0 of API key 'Sample' is outside of its valid versions 1-5.");
+
+        self::generate(self::sampleRequest('1-5'), ['Sample' => 0]);
+    }
+
+    #[Test]
+    public function keepsUnstableLatestVersionOutOfClientRange(): void
+    {
+        $unstable = self::generate(self::sampleRequest('0-6', latestVersionUnstable: true))->get('ApiKey.php');
+        $stable = self::generate(self::sampleRequest('0-6', latestVersionUnstable: false))->get('ApiKey.php');
+
+        Assert::string($unstable ?? '')->contains('self::Sample => new VersionRange(0, 5),');
+        Assert::string($stable ?? '')->contains('self::Sample => new VersionRange(0, 6),');
+    }
+
+    #[Test]
+    public function realSchemasHaveClientVersionRanges(): void
+    {
+        Assert::same(
+            [ApiKey::AddPartitionsToTxn->clientVersionRange()->min, ApiKey::AddPartitionsToTxn->clientVersionRange()->max],
+            [0, 3],
+        );
+        Assert::same(
+            [ApiKey::InitProducerId->clientVersionRange()->min, ApiKey::InitProducerId->clientVersionRange()->max],
+            [0, 5],
+        );
+    }
+
+    #[Test]
+    public function writesAndReadsNullMarkerOfNullableStruct(): void
+    {
+        self::assertSameContent(
+            <<<'JSON'
+                {
+                  "type": "response",
+                  "name": "NullableStructResponse",
+                  "validVersions": "0-1",
+                  "fields": [
+                    {
+                      "name": "Outer",
+                      "type": "Outer",
+                      "versions": "0+",
+                      "about": "Outer struct.",
+                      "fields": [
+                        {
+                          "name": "Always",
+                          "type": "Always",
+                          "versions": "0+",
+                          "nullableVersions": "0+",
+                          "about": "Nullable in all versions.",
+                          "fields": [
+                            { "name": "Value", "type": "int32", "versions": "0+", "about": "A value." }
+                          ]
+                        },
+                        {
+                          "name": "Gated",
+                          "type": "Gated",
+                          "versions": "0+",
+                          "nullableVersions": "1+",
+                          "about": "Nullable in version 1 only.",
+                          "fields": [
+                            { "name": "Value", "type": "int32", "versions": "0+", "about": "A value." }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                JSON,
+            [
+                'NullableStructResponse/Outer.php' => <<<'PHP'
+                    <?php
+
+                    declare(strict_types=1);
+
+                    namespace Thesis\Kafka\Protocol\Generated\NullableStructResponse;
+
+                    use Thesis\Kafka\Protocol\Decodable;
+                    use Thesis\Kafka\Protocol\Encodable;
+                    use Thesis\Kafka\Protocol\Reader;
+                    use Thesis\Kafka\Protocol\Writer;
+
+                    /**
+                     * @api
+                     * @generated
+                     */
+                    final readonly class Outer implements Encodable, Decodable
+                    {
+                        /**
+                         * @param ?Outer\Always $always Nullable in all versions.
+                         * @param ?Outer\Gated $gated Nullable in version 1 only.
+                         */
+                        public function __construct(
+                            public ?Outer\Always $always,
+                            public ?Outer\Gated $gated,
+                        ) {}
+
+                        #[\Override]
+                        public function encode(Writer $writer, int $version): void
+                        {
+                            $writer->writeInt8($this->always === null ? -1 : 1);
+                            $this->always?->encode($writer, $version);
+                            if ($version >= 1) {
+                                $writer->writeInt8($this->gated === null ? -1 : 1);
+                                $this->gated?->encode($writer, $version);
+                            } else {
+                                if ($this->gated === null) {
+                                    throw new \UnexpectedValueException("Field 'Gated' must not be null in version '{$version}'");
+                                }
+                                $this->gated->encode($writer, $version);
+                            }
+                        }
+
+                        #[\Override]
+                        public static function decode(Reader $reader, int $version): static
+                        {
+                            $always = $reader->readInt8() < 0 ? null : Outer\Always::decode($reader, $version);
+                            if ($version >= 1) {
+                                $gated = $reader->readInt8() < 0 ? null : Outer\Gated::decode($reader, $version);
+                            } else {
+                                $gated = Outer\Gated::decode($reader, $version);
+                            }
+                            return new self($always, $gated);
+                        }
+                    }
+
+                    PHP,
+            ],
+        );
+    }
+
+    #[Test]
+    public function failsOnNullableStructInTaggedField(): void
+    {
+        Expect::exception(\LogicException::class)
+            ->withMessage("Field 'Meta' is a nullable struct in a tagged field. The generator does not support it.");
+
+        self::generate(
+            <<<'JSON'
+                {
+                  "type": "response",
+                  "name": "TaggedNullableResponse",
+                  "validVersions": "0+",
+                  "flexibleVersions": "0+",
+                  "fields": [
+                    {
+                      "name": "Meta",
+                      "type": "Meta",
+                      "versions": "0+",
+                      "taggedVersions": "0+",
+                      "nullableVersions": "0+",
+                      "tag": 0,
+                      "about": "Tagged nullable meta.",
+                      "fields": [
+                        { "name": "LeaderId", "type": "int32", "versions": "0+", "about": "Leader id." }
+                      ]
+                    }
+                  ]
+                }
+                JSON,
+        );
+    }
+
+    /**
+     * @param non-empty-string $validVersions
+     * @return non-empty-string
+     */
+    private static function sampleRequest(string $validVersions, bool $latestVersionUnstable = false): string
+    {
+        $unstable = $latestVersionUnstable ? 'true' : 'false';
+
+        return <<<JSON
+            {
+              "type": "request",
+              "name": "SampleRequest",
+              "apiKey": 42,
+              "latestVersionUnstable": {$unstable},
+              "validVersions": "{$validVersions}",
+              "fields": [
+                { "name": "Name", "type": "string", "versions": "0+", "about": "A name." }
+              ]
+            }
+            JSON;
+    }
+
+    /**
+     * @param non-empty-string $json
+     * @param array<non-empty-string, non-negative-int> $lastClientVersions
+     */
+    private static function generate(string $json, array $lastClientVersions = []): InMemoryWriter
+    {
+        $writer = new InMemoryWriter();
+
+        $generator = new Generator(
+            fs: $writer,
+            protocolNs: new NamespaceGenerator('Thesis\Kafka\Protocol'),
+            generatedNs: new NamespaceGenerator('Thesis\Kafka\Protocol\Generated'),
+            lastClientVersions: $lastClientVersions,
+        );
+
+        $generator->generate(new StaticSource([$json]));
+
+        return $writer;
+    }
+
     /**
      * @param non-empty-string $json
      * @param array<non-empty-string, non-empty-string> $classes
@@ -1011,15 +1248,7 @@ final class GeneratorTest
         string $json,
         array $classes,
     ): void {
-        $writer = new InMemoryWriter();
-
-        $generator = new Generator(
-            fs: $writer,
-            protocolNs: new NamespaceGenerator('Thesis\Kafka\Protocol'),
-            generatedNs: new NamespaceGenerator('Thesis\Kafka\Protocol\Generated'),
-        );
-
-        $generator->generate(new StaticSource([$json]));
+        $writer = self::generate($json);
 
         foreach ($classes as $path => $class) {
             Assert::same($class, $writer->get($path));

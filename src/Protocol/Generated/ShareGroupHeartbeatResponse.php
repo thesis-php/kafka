@@ -43,7 +43,7 @@ final readonly class ShareGroupHeartbeatResponse implements Response
         $memberId = $reader->readCompactNullableString();
         $memberEpoch = $reader->readInt32();
         $heartbeatIntervalMs = $reader->readInt32();
-        $assignment = $reader->readBool() ? ShareGroupHeartbeatResponse\Assignment::decode($reader, $version) : null;
+        $assignment = $reader->readInt8() < 0 ? null : ShareGroupHeartbeatResponse\Assignment::decode($reader, $version);
         $unknownTags = $reader->readTaggedFields();
         return new self($throttleTimeMs, $errorCode, $errorMessage, $memberId, $memberEpoch, $heartbeatIntervalMs, $assignment, $unknownTags);
     }
