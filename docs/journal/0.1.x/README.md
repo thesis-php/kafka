@@ -38,7 +38,7 @@ One line per task, in the order of work:
 - [x] [039 Shared work in consumers and cancellation](039-shared-work-in-consumers.md) — [538347a](https://github.com/thesis-php/kafka/commit/538347a)
 - [x] [040 Metadata timer: interval and log](040-metadata-timer-details.md) — [6171caf](https://github.com/thesis-php/kafka/commit/6171caf)
 - [x] [010 Varint and int64 without copies](010-varint-decoding.md) — [e3a9669](https://github.com/thesis-php/kafka/commit/e3a9669)
-- [ ] 011 Retriable errors and leader change
+- [ ] [011 Retriable errors and leader change](011-retriable-errors.md)
 - [ ] 012 Generator: client versions and null structs
 - [ ] 016 Producer shutdown
 - [ ] 017 Producer concurrency
