@@ -6,12 +6,13 @@ namespace Thesis\Kafka\Consumer\Internal;
 
 use Amp\Cancellation;
 use Amp\Future;
-use Amp\NullCancellation;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
+use Thesis\Kafka\Internal\RequestTimeout;
 use Thesis\Kafka\TopicPartition;
+use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 /**
@@ -33,6 +34,7 @@ final class DirectConsumer implements Consumer
         private readonly OffsetLister $offsets,
         private readonly array $topics,
         private readonly ContextLogger $logger,
+        private readonly TimeSpan $requestTimeout,
     ) {}
 
     #[\Override]
@@ -44,21 +46,15 @@ final class DirectConsumer implements Consumer
             throw new Exception\ConsumerClosed();
         }
 
-        $this->setup?->await($cancellation);
-
         if ($this->state === DirectConsumer\State::Idle) {
             $this->state = DirectConsumer\State::Running;
 
-            try {
-                $this->setup ??= async($this->setup(...), $cancellation);
-                $this->setup->await($cancellation);
-            } catch (\Throwable $e) {
-                $this->state = DirectConsumer\State::Idle;
-                throw $e;
-            } finally {
-                $this->setup = null;
-            }
+            // The setup does not use the cancellation of this caller: another
+            // caller can wait for it too. Each caller waits with its own cancellation.
+            $this->setup = async($this->setup(...))->ignore();
         }
+
+        $this->setup?->await($cancellation);
 
         return $this->consumer->consume($mode, $cancellation);
     }
@@ -84,11 +80,25 @@ final class DirectConsumer implements Consumer
     /**
      * @throws Exception
      */
-    private function setup(?Cancellation $cancellation = null): void
+    private function setup(): void
     {
-        $cancellation ??= new NullCancellation();
+        try {
+            $this->start();
+        } catch (\Throwable $e) {
+            $this->state = DirectConsumer\State::Idle;
 
-        $metadata = $this->cluster->lookup($this->topics, $cancellation);
+            throw $e;
+        } finally {
+            $this->setup = null;
+        }
+    }
+
+    /**
+     * @throws Exception
+     */
+    private function start(): void
+    {
+        $metadata = $this->cluster->lookup($this->topics, $this->timeout());
 
         /** @var list<TopicPartition> $partitions */
         $partitions = [];
@@ -104,12 +114,21 @@ final class DirectConsumer implements Consumer
 
         \assert($partitions !== []);
 
-        $offsets = $this->offsets->list($partitions, $metadata, $cancellation);
-        $this->consumer->start($offsets, $cancellation);
+        $offsets = $this->offsets->list($partitions, $metadata, $this->timeout());
+        $this->consumer->start($offsets, $this->timeout());
 
         // @infection-ignore-all
         $this->logger->debug('consumer started', [
             'topics' => $this->topics,
         ]);
+    }
+
+    /**
+     * No caller limits the setup, so each step has the request timeout of the
+     * client. Without it a broker that does not answer blocks the setup forever.
+     */
+    private function timeout(): Cancellation
+    {
+        return RequestTimeout::start($this->requestTimeout->toSeconds(3));
     }
 }

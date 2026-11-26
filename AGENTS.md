@@ -214,7 +214,7 @@ Notes:
   client uses with the broker of the run.
   `createClient(seeds:, metadataMaxAge:, connectTimeout:, requestTimeout:)`
   creates one more client with other settings. `groupConsumer(..., client:)`
-  creates the consumer on such a client. `rebalanceTimeout:`, `sessionTimeout:`
+  and `directConsumer(..., client:)` create the consumer on such a client. `rebalanceTimeout:`, `sessionTimeout:`
   and `heartbeatInterval:` change the timeouts of the group (the main cluster
   accepts a session timeout of 6 s and more, `kafka-proxied-standalone` of 1 s
   and more). `maxWait:` shortens the wait of a fetch: a fetch that is cancelled

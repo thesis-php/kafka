@@ -58,6 +58,7 @@ final readonly class DirectConsumerFactory
             offsets: $offsets,
             topics: $topics,
             logger: $logger,
+            requestTimeout: $this->config->requestTimeout,
         );
     }
 }
