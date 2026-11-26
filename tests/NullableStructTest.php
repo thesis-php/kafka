@@ -100,7 +100,7 @@ final readonly class NullableStructTest
                 ->until($hasPartitions);
 
             Assert::same($assigned->memberId, $memberId);
-            Assert::notNull($assigned->assignment);
+            Assert::instanceOf($assigned->assignment, Generated\ConsumerGroupHeartbeatResponse\Assignment::class);
             Assert::same(
                 array_map(
                     static function (Generated\ConsumerGroupHeartbeatResponse\TopicPartitions $partitions): array {
