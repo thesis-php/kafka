@@ -71,7 +71,7 @@ final class Writer implements
             $value = ($value >> 7) & (PHP_INT_MAX >> 6);
         }
 
-        $this->buffer .= \chr($value);
+        $this->buffer .= \chr($value & 0x7F);
     }
 
     public function writeVarint(int $value): void
