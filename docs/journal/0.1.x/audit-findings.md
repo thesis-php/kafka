@@ -483,15 +483,18 @@ How to read this file:
 
 Found while tasks 013, 014 and 015 were implemented. No task covered them.
 
-- **A slow but legal request looks like a dead connection.**
-  `Connection::closeIfSilent()` in `src/Internal/Connection.php` closes a
-  connection that owes an answer and is silent for `Config::$requestTimeout`.
-  A Fetch waits up to `Consumer\Config::$maxWait`, and a JoinGroup waits up
-  to `Consumer\GroupConfig::$rebalanceTimeout`. When the user sets one of
-  them to the request timeout or more, a cancellation of such a request
-  closes the connection and logs "connection does not answer". With the
-  defaults (5 s and 10 s against 30 s) it does not happen. Found in task 015,
-  from the code. Not reproduced.
+- **A slow but legal request looks like a dead connection.** Mostly solved
+  in task 015 itself, before it was merged. The first rule compared the
+  silence of a connection with `Config::$requestTimeout`, so a long Fetch
+  (`Consumer\Config::$maxWait`) or JoinGroup
+  (`Consumer\GroupConfig::$rebalanceTimeout`) could close a healthy
+  connection. The final rule closes a connection only when the client's own
+  request timeout (`Internal\RequestTimeout`) has fired and nothing was read
+  since it started. Fetch and JoinGroup pass their own cancellation, so they
+  never close a connection now. What is left: a caller that passes its own
+  cancellation gets no detection of a half-open connection at all. Every
+  request of a consumer on such a connection waits for its own cancellation.
+  From the code. Not reproduced.
 - **`Cluster::$topicAnswers` only grows.** `src/Internal/Cluster.php` keeps
   the number of the last metadata answer for every topic name it ever saw,
   also for deleted topics. A client that works with many short-lived topics
