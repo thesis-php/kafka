@@ -132,7 +132,7 @@ final class IdempotencyCoordinator
             request: $request,
             cancellation: $cancellation,
             retry: new Retry\Operation(
-                static fn(Generated\InitProducerIdResponse $response): ErrorCode => ErrorCode::from($response->errorCode),
+                static fn(Generated\InitProducerIdResponse $response): ErrorCode => ErrorCode::tryFrom($response->errorCode) ?? ErrorCode::UnknownServerError,
                 // @infection-ignore-all
                 logger: $this->logger->with([
                     'component' => 'retry',

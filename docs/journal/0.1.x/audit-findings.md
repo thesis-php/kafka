@@ -244,6 +244,12 @@ How to read this file:
 - Unverified: `TopicProducer::release()` calls the metadata lookup (line
   231) before the batch is marked as released. A throw there happens inside
   the linger timer callback.
+- Found in task 011, from the code: `PartitionWorker`
+  (`src/Producer/Internal/Sender/PartitionWorker.php`) does not handle an
+  exception from `BatchProducer::produce()`. The error would go to the write
+  future, which nobody awaits, and the futures of the batch would never
+  resolve. `produce()` catches everything today, so nothing reaches this
+  path. It is only a weak spot.
 
 ## 018 Idempotent producer after a failed batch
 
@@ -587,6 +593,20 @@ Found while tasks 013, 014 and 015 were implemented. No task covered them.
   `tests/Testing/Setup.php` stops waiting for the closure and cleans up, but
   the closure stays in the event loop until the process ends. It can disturb
   the next tests of the run. Found in task 038.
+- Found in task 011, from the code: the log record `topic metadata error`
+  in `Cluster::createMetadataSnapshot()` has the raw number of the response
+  in `errorCode`, and the name of the error from the enum. For a code that
+  the enum does not have the two do not match. Harmless.
+
+## 043 Error codes after 133
+
+- Found in task 011, from the code: `Protocol\ErrorCode` ends at
+  `ShareSessionLimitReached` (133). `Errors.java` of Kafka trunk (commit
+  `10d514e6`) has codes up to 145. A broker that sends one of them gets
+  `UnknownServerError` from the client. One of them is retriable in Kafka:
+  `MIRROR_CONFIG_NOT_AVAILABLE` (144). The client does not retry it. The
+  fix adds cases to an `@api` enum. `tests/Protocol/ErrorCodeTest.php` has
+  the fixed list of retriable errors and must get the new ones.
 
 ## Checked and found correct
 

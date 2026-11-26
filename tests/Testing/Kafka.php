@@ -224,9 +224,12 @@ final readonly class Kafka
         $this->resources->removeTopic($topic);
     }
 
-    public function producer(Producer\Config $config = new Producer\Config()): Producer
+    /**
+     * @param ?Client $client the client of the producer, the client of the run by default
+     */
+    public function producer(Producer\Config $config = new Producer\Config(), ?Client $client = null): Producer
     {
-        $producer = $this->client->createProducer($config);
+        $producer = ($client ?? $this->client)->createProducer($config);
         $this->resources->addCloser('producer', $producer->close(...));
 
         return $producer;

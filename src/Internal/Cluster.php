@@ -629,7 +629,7 @@ final class Cluster implements MetadataProvider
             \assert(\is_string($topicName) && $topicName !== '');
 
             if ($topic->errorCode !== 0) {
-                $error = ErrorCode::from($topic->errorCode);
+                $error = ErrorCode::tryFrom($topic->errorCode) ?? ErrorCode::UnknownServerError;
                 // @infection-ignore-all
                 $this->logger->warning('topic metadata error', [
                     'topic' => $topicName,
