@@ -214,7 +214,7 @@ final class Cluster implements MetadataProvider
         // Default to a client-side timeout based on Config: without it,
         // a slow broker would stall the caller indefinitely. Callers
         // who want different semantics pass their own Cancellation.
-        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds(3));
+        $cancellation ??= RequestTimeout::start($this->config->requestTimeout->toSeconds(3));
 
         /** @var \Closure(): T $call */
         $call = fn() => $this->doRequest(
@@ -283,7 +283,7 @@ final class Cluster implements MetadataProvider
         Connection\Reply $reply = Connection\Reply::Expected,
         ?int $brokerId = null,
     ): mixed {
-        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds(3));
+        $cancellation ??= RequestTimeout::start($this->config->requestTimeout->toSeconds(3));
 
         if ($brokerId !== null) {
             $broker = $this->brokers[$brokerId] ?? throw new UnknownBroker($brokerId);
@@ -352,7 +352,7 @@ final class Cluster implements MetadataProvider
         Generated\Request $request,
         ?Cancellation $cancellation = null,
     ): Generated\Response {
-        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds(3));
+        $cancellation ??= RequestTimeout::start($this->config->requestTimeout->toSeconds(3));
 
         // Only two attempts: first with whatever controllerId we currently
         // believe, second after a forced metadata refresh. Anything
@@ -421,7 +421,7 @@ final class Cluster implements MetadataProvider
         ?Cancellation $cancellation = null,
         Connection\Reply $reply = Connection\Reply::Expected,
     ): mixed {
-        $cancellation ??= new TimeoutCancellation($this->config->requestTimeout->toSeconds(3));
+        $cancellation ??= RequestTimeout::start($this->config->requestTimeout->toSeconds(3));
 
         $errors = [];
 

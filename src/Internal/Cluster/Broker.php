@@ -63,17 +63,7 @@ final class Broker
         Cancellation $cancellation,
         Connection\Reply $reply = Connection\Reply::Expected,
     ): mixed {
-        // The silence of a connection is measured from this moment. See Connection::closeIfSilent().
-        $startedAt = (int) hrtime(true);
-
         $kind = Connection\Kind::for($request);
-
-        $connection = $this->alive[$kind] ?? null;
-
-        // A connection that does not answer is closed. Its onClose callback drops it from alive[].
-        if ($connection?->closeIfSilent($startedAt) === true) {
-            $connection = null;
-        }
 
         // Fast path: reuse a healthy connection of this kind.
         // Slow paths in order:
@@ -82,9 +72,10 @@ final class Broker
         //     concurrent caller, and await it ourselves.
         // The connect is shared, so it does not use the cancellation of one
         // caller. Each caller stops waiting on its own cancellation.
-        $connection ??= ($this->opening[$kind] ??= $this->connect($kind))->await($cancellation);
+        $connection = $this->alive[$kind]
+            ?? ($this->opening[$kind] ??= $this->connect($kind))->await($cancellation);
 
-        return $connection->call(new Connection\Call($request), $cancellation, $reply, $startedAt);
+        return $connection->call(new Connection\Call($request), $cancellation, $reply);
     }
 
     public function alive(): bool

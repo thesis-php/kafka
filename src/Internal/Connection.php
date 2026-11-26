@@ -74,20 +74,6 @@ final class Connection
     private int $lastReadAt;
 
     /**
-     * Requests whose callers stopped waiting before the answer came.
-     * The broker still owes an answer to each of them.
-     *
-     * @var array<non-negative-int, true>
-     */
-    private array $abandoned = [];
-
-    /**
-     * The hrtime() when the connection began to wait for an answer: the
-     * start of the first request after a moment with no owed answers.
-     */
-    private int $waitingSince = 0;
-
-    /**
      * Fails with the close reason when the connection closes. A caller that
      * waits for a free place in the send queue also waits for it, so the
      * close releases the caller. The queue itself does not release it.
@@ -115,7 +101,6 @@ final class Connection
     /**
      * @template R of Generated\Response
      * @param Connection\Call<R> $call
-     * @param ?int $startedAt the hrtime() when the caller began the request, now by default
      * @return ($reply is Connection\Reply::Expected ? R : null)
      * @throws Exception
      * @throws CancelledException
@@ -124,10 +109,7 @@ final class Connection
         Connection\Call $call,
         Cancellation $cancellation = new NullCancellation(),
         Connection\Reply $reply = Connection\Reply::Expected,
-        ?int $startedAt = null,
     ): mixed {
-        $startedAt ??= (int) hrtime(true);
-
         if ($this->state === Connection\State::Idle) {
             $this->run();
         }
@@ -189,10 +171,6 @@ final class Connection
         );
 
         if ($reply === Connection\Reply::Expected) {
-            if ($this->pending === [] && $this->abandoned === []) {
-                $this->waitingSince = $startedAt;
-            }
-
             $this->pending[$id] = $request;
         }
 
@@ -206,8 +184,24 @@ final class Connection
 
             return $deferred->getFuture()->await($cancellation);
         } catch (\Throwable $e) {
-            if ($e instanceof CancelledException) {
-                $this->closeIfSilent((int) hrtime(true));
+            // The request timeout of the client has ended, and nothing came from the broker
+            // in all that time: no answer to this request and none to other requests.
+            // The connection is probably half-open. A cancellation of the caller proves
+            // nothing, so only the client's own request timeout closes the connection.
+            $timeoutStartedAt = RequestTimeout::startedAt($cancellation);
+
+            if ($e instanceof CancelledException
+                && $timeoutStartedAt !== null
+                && $cancellation->isRequested()
+                && $this->lastReadAt < $timeoutStartedAt) {
+                // @infection-ignore-all
+                $this->logger->warning('connection does not answer, closing it', [
+                    'correlationId' => $id,
+                    'apiKey' => $call->request->apiKey()->name,
+                    'timeout' => $this->config->requestTimeout->toSeconds(3),
+                ]);
+
+                $this->close();
             }
 
             if ($e instanceof ConnectionClosed) {
@@ -235,15 +229,9 @@ final class Connection
             // past push()), the response will still arrive and silently be dropped
             // in the read loop as "unknown correlation id". Aborting an in-flight
             // pipelined request can only be done by killing the whole TCP session.
-            // We do it only for a connection that does not answer (see silentSince()).
+            // We do it only for a connection that does not answer (see above).
             if ($reply === Connection\Reply::Expected) {
                 unset($this->pending[$id]);
-
-                // The answer has not come, and the connection is open. The answer is
-                // still owed, so the connection keeps waiting for it.
-                if (!$deferred->isComplete()) {
-                    $this->abandoned[$id] = true;
-                }
             }
         }
     }
@@ -370,43 +358,6 @@ final class Connection
         $this->onClose[] = $f;
     }
 
-    /**
-     * Closes the connection when it owes answers and has been silent for the
-     * request timeout: nothing was read since it began to wait, or since the
-     * last bytes. Such a connection is probably half-open. A connection with
-     * no owed answers is never silent, however long it was idle.
-     *
-     * The timeout of a caller starts a little before its request reaches the
-     * connection. So the silence starts at the moment the caller began the
-     * request ($startedAt of call()), not when the request was queued. The
-     * next request of the same caller then sees the silence of its timed-out
-     * request as at least the request timeout.
-     *
-     * @param int $now the hrtime() of the check
-     * @return bool true when the connection was closed
-     */
-    public function closeIfSilent(int $now): bool
-    {
-        if ($this->state === Connection\State::Closed || ($this->pending === [] && $this->abandoned === [])) {
-            return false;
-        }
-
-        $silence = $now - max($this->waitingSince, $this->lastReadAt);
-        if ($silence < $this->config->requestTimeout->toNanoseconds()) {
-            return false;
-        }
-
-        // @infection-ignore-all
-        $this->logger->warning('connection does not answer, closing it', [
-            'silence' => round($silence / 1e9, 3),
-            'timeout' => $this->config->requestTimeout->toSeconds(3),
-        ]);
-
-        $this->close();
-
-        return true;
-    }
-
     public function close(): void
     {
         $this->shutdown(new ConnectionClosed("Connection closed locally: {$this->endpoint}."));
@@ -429,7 +380,6 @@ final class Connection
 
         $requests = $this->pending;
         $this->pending = [];
-        $this->abandoned = [];
 
         foreach ($requests as $request) {
             $request->error($reason);
@@ -628,8 +578,6 @@ final class Connection
         $reader = new Reader($frame);
 
         $correlationId = $reader->readInt32();
-        unset($this->abandoned[$correlationId]);
-
         if (!isset($this->pending[$correlationId])) {
             // Either the request was cancelled before the response arrived
             // (entry removed from $pending), or the broker is misbehaving.
