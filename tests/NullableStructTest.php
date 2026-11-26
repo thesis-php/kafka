@@ -73,7 +73,14 @@ final readonly class NullableStructTest
                 ),
             );
 
-            // A new broker loads the offsets topic first. Until then the coordinator is not ready.
+            // A new broker has no offsets topic. Only FindCoordinator creates it, a heartbeat does not.
+            // Until the topic is loaded, the heartbeat gets NOT_COORDINATOR.
+            $kafka->client->request(new Generated\FindCoordinatorRequest(
+                key: $groupId,
+                keyType: 0,
+                coordinatorKeys: [$groupId],
+            ));
+
             $joined = $kafka->poll(static fn() => $heartbeat(0))
                 ->expecting('a joined member')
                 ->describedBy(static fn(Generated\ConsumerGroupHeartbeatResponse $response) => "error code {$response->errorCode}")
