@@ -272,7 +272,7 @@ final class Connection
                     $cancellation,
                 );
 
-            $error = ErrorCode::from($response->errorCode);
+            $error = ErrorCode::tryFrom($response->errorCode) ?? ErrorCode::UnknownServerError;
             if ($error === ErrorCode::None) {
                 $this->versions->seed(...$response->apiKeys);
 
@@ -317,7 +317,7 @@ final class Connection
                     $cancellation,
                 );
 
-            $error = ErrorCode::from($response->errorCode);
+            $error = ErrorCode::tryFrom($response->errorCode) ?? ErrorCode::UnknownServerError;
             if ($error === ErrorCode::None) {
                 $this->doSaslAuthenticate($authenticator, $cancellation);
                 // @infection-ignore-all
@@ -479,7 +479,7 @@ final class Connection
                     $cancellation,
                 );
 
-            if (ErrorCode::from($response->errorCode) !== ErrorCode::None) {
+            if ($response->errorCode !== 0) {
                 throw new ProtocolError(Errors::for($response));
             }
 

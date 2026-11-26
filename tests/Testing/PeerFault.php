@@ -38,4 +38,9 @@ enum PeerFault
      * next request with a frame whose first varint has 11 bytes.
      */
     case LongVarint;
+
+    /**
+     * Answers ApiVersions with the error code 9999. Kafka has no such code.
+     */
+    case UnknownErrorCode;
 }

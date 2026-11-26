@@ -214,14 +214,16 @@ Notes:
   client uses with the broker of the run.
   `createClient(seeds:, metadataMaxAge:, connectTimeout:, requestTimeout:)`
   creates one more client with other settings. `groupConsumer(..., client:)`
-  and `directConsumer(..., client:)` create the consumer on such a client. `rebalanceTimeout:`, `sessionTimeout:`
+  and `directConsumer(..., client:)` create the consumer on such a client,
+  `producer(..., client:)` the producer. `rebalanceTimeout:`, `sessionTimeout:`
   and `heartbeatInterval:` change the timeouts of the group (the main cluster
   accepts a session timeout of 6 s and more, `kafka-proxied-standalone` of 1 s
   and more). `maxWait:` shortens the wait of a fetch: a fetch that is cancelled
   at a rebalance still holds its connection on the broker until `maxWait` ends. `groupConfig()` returns the consumer config of
   `groupConsumer()`, for example for `subscribe()` with a group. `proxy()`
   starts a TCP proxy to the first seed broker. A client that uses
-  `$proxy->endpoint` loses the broker after `$proxy->disconnect()`. After
+  `$proxy->endpoint` loses the broker after `$proxy->disconnect()`.
+  `$proxy->drop()` closes the open connections; new connections work. After
   `$proxy->stall()` the open connections stay open but never answer; new
   connections work. `$proxy->accepted()` tells how many client connections
   the proxy got. A client learns the addresses of the brokers from the
@@ -235,7 +237,9 @@ Notes:
   answers with a frame length of 2 GiB and garbage. It does not speak the
   Kafka protocol. `PeerFault::CutVarint` and `PeerFault::LongVarint` answer
   ApiVersions correctly and then answer the next request with a frame that
-  ends inside a varint, or with a varint of 11 bytes. `accepted()` and `openConnections()` tell how many
+  ends inside a varint, or with a varint of 11 bytes.
+  `PeerFault::UnknownErrorCode` answers ApiVersions with the error code 9999,
+  which Kafka does not have. `accepted()` and `openConnections()` tell how many
   connections it got and how many the client has not closed yet.
   `loopWorkAfter($step)` runs the step and returns the event loop work that
   the step left behind (it waits until there is none).

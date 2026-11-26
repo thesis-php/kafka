@@ -286,6 +286,10 @@ enum ErrorCode: int
         };
     }
 
+    /**
+     * Tells whether the request can be sent again. The list is the same as
+     * the retriable errors of the Kafka Java client.
+     */
     public function retriable(): bool
     {
         return match ($this) {
@@ -294,13 +298,15 @@ enum ErrorCode: int
             self::LeaderNotAvailable,
             self::NotLeaderForPartition,
             self::RequestTimedOut,
-            self::BrokerNotAvailable,
+            self::ReplicaNotAvailable,
             self::NetworkException,
             self::CoordinatorLoadInProgress,
             self::CoordinatorNotAvailable,
+            self::NotCoordinator,
             self::NotEnoughReplicas,
             self::NotEnoughReplicasAfterAppend,
             self::NotController,
+            self::ConcurrentTransactions,
             self::KafkaStorageError,
             self::FetchSessionIDNotFound,
             self::InvalidFetchSessionEpoch,
@@ -308,12 +314,16 @@ enum ErrorCode: int
             self::FencedLeaderEpoch,
             self::UnknownLeaderEpoch,
             self::OffsetNotAvailable,
+            self::PreferredLeaderNotAvailable,
             self::EligibleLeadersNotAvailable,
             self::ElectionNotNeeded,
             self::UnstableOffsetCommit,
             self::ThrottlingQuotaExceeded,
             self::UnknownTopicID,
+            self::InconsistentTopicID,
             self::FetchSessionTopicIDError,
+            self::ShareSessionNotFound,
+            self::InvalidShareSessionEpoch,
             self::ShareSessionLimitReached => true,
             default => false,
         };

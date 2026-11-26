@@ -10,10 +10,11 @@ use function Amp\async;
 
 /**
  * A TCP server in the test process that plays a broken broker. It accepts
- * connections and then closes them, stalls, sends garbage, or sends a bad
- * varint, as its {@see PeerFault} says. It does not speak the Kafka protocol,
- * except for one fixed ApiVersions answer: it checks only how the client
- * reacts to a broken peer. Create it with {@see Kafka::brokenPeer()}.
+ * connections and then closes them, stalls, sends garbage, sends a bad
+ * varint, or sends an unknown error code, as its {@see PeerFault} says. It
+ * does not speak the Kafka protocol, except for fixed ApiVersions answers:
+ * it checks only how the client reacts to a broken peer. Create it with
+ * {@see Kafka::brokenPeer()}.
  *
  * @internal
  */
@@ -38,6 +39,12 @@ final class BrokenPeer
      * client reads a varint first.
      */
     private const string API_VERSIONS_BODY = "\x00\x00\x02\x00\x0A\x00\x03\x00\x04\x00\x00\x00\x00\x00\x00";
+
+    /**
+     * The body of an ApiVersions v4 response: the error code 9999, no keys,
+     * no throttle, no tagged fields.
+     */
+    private const string UNKNOWN_ERROR_BODY = "\x27\x0F\x01\x00\x00\x00\x00\x00";
 
     public readonly Endpoint $endpoint;
 
@@ -124,10 +131,14 @@ final class BrokenPeer
             }
 
             if ($this->fault === PeerFault::CutVarint || $this->fault === PeerFault::LongVarint) {
-                $this->answer($client, match ($this->fault) {
+                $this->answer($client, self::API_VERSIONS_BODY, match ($this->fault) {
                     PeerFault::CutVarint => "\x80",
                     PeerFault::LongVarint => str_repeat("\xFF", 10) . "\x01",
                 });
+            }
+
+            if ($this->fault === PeerFault::UnknownErrorCode) {
+                $this->answer($client, self::UNKNOWN_ERROR_BODY, self::UNKNOWN_ERROR_BODY);
             }
 
             // Read until the client closes the connection, so the peer knows when it is gone.
@@ -141,10 +152,10 @@ final class BrokenPeer
     }
 
     /**
-     * Answers the first request with {@see self::API_VERSIONS_BODY} and
-     * every next request with the bad body.
+     * Answers the first request with the first body and every next request
+     * with the next body.
      */
-    private function answer(Socket\Socket $client, string $badBody): void
+    private function answer(Socket\Socket $client, string $firstBody, string $nextBody): void
     {
         $buffer = '';
         $answered = 0;
@@ -160,7 +171,7 @@ final class BrokenPeer
                     break;
                 }
 
-                $body = $answered++ === 0 ? self::API_VERSIONS_BODY : $badBody;
+                $body = $answered++ === 0 ? $firstBody : $nextBody;
                 $client->write(pack('N', 4 + \strlen($body)) . substr($buffer, 8, 4) . $body);
 
                 $buffer = substr($buffer, 4 + $length[1]);

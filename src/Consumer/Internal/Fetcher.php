@@ -220,7 +220,7 @@ final class Fetcher
             }
 
             foreach ($topicResponse->partitions as $partitionResponse) {
-                $error = ErrorCode::from($partitionResponse->errorCode);
+                $error = ErrorCode::tryFrom($partitionResponse->errorCode) ?? ErrorCode::UnknownServerError;
                 if ($error !== ErrorCode::None) {
                     // @infection-ignore-all
                     $this->logger->warning('fetch error for partition', [
