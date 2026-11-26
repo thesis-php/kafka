@@ -14,6 +14,9 @@ How to read this file:
 - Rule for every bug below: first write an integration test that fails, then
   fix. If a bug cannot be reproduced through the public API, do not fix it
   blindly. Put it in the task report.
+- Notes that start with "Found in task NNN" were added later, while that
+  task was implemented. They were seen on a running broker or in the code of
+  that day. See "Findings outside a task" in `AGENTS.md`.
 
 ## 010 Varint and int64 without copies
 
@@ -54,6 +57,16 @@ How to read this file:
   attempts, so 10 attempts run back to back. Confidence: high.
 - `BatchProducer.php:73` uses `ErrorCode::from()`. It throws `ValueError` for
   a code that the enum does not know. `Errors::code()` has the safe form.
+- Found in task 013: two items of this section are done there.
+  `NotLeaderForPartition` is retriable, and `BatchProducer` waits and
+  refreshes the metadata between two attempts after a retriable error. Task
+  008 replaced `ErrorCode::from()` in `BatchProducer`. Still open: the other
+  error codes, and the `catch` path of `BatchProducer` (`ConnectionClosed`,
+  `UnknownBroker`, `NoAvailablePartitionLeader`) that does not refresh the
+  metadata.
+- Found in task 008: the retry closure in
+  `src/Producer/Internal/IdempotencyCoordinator.php` still uses
+  `ErrorCode::from()`.
 
 ## 012 Generator: client versions and null structs
 
@@ -186,6 +199,22 @@ How to read this file:
 - **`BatchFull` in a bulk `produce()` loses the futures.**
   `src/Producer/Internal/AsyncProducer.php:83-88`. Records before the full
   one are queued, but the caller gets only the exception.
+- Found in task 038: `AsyncProducer::close()` is idempotent now. The rest of
+  "No closed state" is open.
+- Found in task 014: "The producer never closes its `Cluster`" is confirmed.
+  After `produceSync()` and `close()` the event loop still had three sockets
+  and the metadata timer, and `EventLoop::run()` did not return in 15 s.
+  `Cluster` has a closed state now, so the producer only has to call it.
+- Found in task 013: a producer is closed while a `produce()` still waits for
+  the metadata. The linger timer fires after the close, and the event loop
+  gets "Values cannot be enqueued after calling complete" from
+  `TopicProducer::openNew()`. The next tests of the same run fail too.
+- Found in task 015: `push()` into a queue without a cancellation in
+  `src/Producer/Internal/Sender/PartitionWorker.php` (`enqueue()`) and in
+  `src/Producer/Internal/TopicProducer.php` (`release()`). The caller waits
+  forever when nobody reads the queue. Not checked on a broker. Note: do not
+  rely on `dispose()` after `complete()` to release such callers. It does
+  nothing in `amphp/pipeline` 1.2.0 and 1.2.1, which `composer.json` allows.
 
 ## 017 Producer concurrency
 
@@ -294,6 +323,10 @@ How to read this file:
   `src/Internal/Cluster.php:119` as used from `Coordinator.php:61-65`. A
   lost response blocks the heartbeat forever. Confidence: high on the code.
 - **A dead fetcher is not noticed by the session.** See 019.
+- Found in task 015: the same note as in 016 about `dispose()` after
+  `complete()` in `amphp/pipeline` 1.2.0 applies to the fix of the `push()`
+  in `GroupSession`. Run the tests with the lowest dependencies
+  (`make install-lowest`).
 
 ## 022 Group commits
 
@@ -409,6 +442,13 @@ How to read this file:
 - `AGENTS.md` does not allow generic exceptions to reach the user. Check
   every `throw new \` in `src/` outside of `src/Protocol/Generated/` when
   this task is planned.
+- Found in tasks 008 and 013: done already: `OffsetLister`,
+  `PartitionWorker`, `IdempotencyCoordinator` ("InitProducerId failed") and
+  `BatchProducer`. Still open in the produce path:
+  `src/Producer/Internal/AsyncProducer.php` ("No producer record topic and
+  no default"), `src/Producer/Internal/TopicProducer.php` ("TopicProducer is
+  dead", a user reaches it with `produce()` after `close()`), and
+  `src/Producer/Internal/RecordBatch.php` (the codec does not match).
 
 ## 026 Write and read performance
 
@@ -438,6 +478,41 @@ How to read this file:
 - `src/Producer/Internal/Sender/BatchProducer.php:163-186` always builds a
   request with one topic and one partition. N partitions on one broker mean
   N requests per linger interval.
+
+## 042 Connection and metadata leftovers
+
+Found while tasks 013, 014 and 015 were implemented. No task covered them.
+
+- **A slow but legal request looks like a dead connection.** Mostly solved
+  in task 015 itself, before it was merged. The first rule compared the
+  silence of a connection with `Config::$requestTimeout`, so a long Fetch
+  (`Consumer\Config::$maxWait`) or JoinGroup
+  (`Consumer\GroupConfig::$rebalanceTimeout`) could close a healthy
+  connection. The final rule closes a connection only when the client's own
+  request timeout (`Internal\RequestTimeout`) has fired and nothing was read
+  since it started. Fetch and JoinGroup pass their own cancellation, so they
+  never close a connection now. What is left: a caller that passes its own
+  cancellation gets no detection of a half-open connection at all. Every
+  request of a consumer on such a connection waits for its own cancellation.
+  From the code. Not reproduced.
+- **`Cluster::$topicAnswers` only grows.** `src/Internal/Cluster.php` keeps
+  the number of the last metadata answer for every topic name it ever saw,
+  also for deleted topics. A client that works with many short-lived topics
+  leaks memory slowly. Found in task 013.
+- **`Metadata::$loadedAtMs` is written and never read.** Found in task 013.
+- **Old connection removes a new one.** `Broker` removes a connection from
+  its list by kind, not by identity, and clears the opening slot by kind.
+  Task 015 could not reproduce it: a new connection of a kind is made only
+  after the old one was removed. Left as it is.
+- Unverified, moved from section 015: if the connection is already closed
+  when `onClose()` is registered in `Broker`, the closed connection stays in
+  use. A `sessionLifetimeMs` of 0 on re-authentication makes every request
+  re-authenticate. An IPv6 advertised host without brackets breaks
+  `Endpoint::fromString`.
+- **A scenario of the test kit that ran out of time keeps running.**
+  `tests/Testing/Setup.php` stops waiting for the closure and cleans up, but
+  the closure stays in the event loop until the process ends. It can disturb
+  the next tests of the run. Found in task 038.
 
 ## Checked and found correct
 

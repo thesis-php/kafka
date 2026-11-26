@@ -98,6 +98,11 @@ the problem to the user. The task file is changed only with the user.
 
 ## 6. Report
 
+Before the report, write down every bug that was found and is not a part of
+the task: your own findings from the review and the ones the subagent listed.
+Follow "Findings outside a task" in `AGENTS.md`. Do it without asking. In the
+report say what you added and where.
+
 Tell the user:
 
 - which task was implemented (number, title) and on which branch;

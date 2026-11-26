@@ -253,14 +253,16 @@ final readonly class Kafka
      *
      * @param non-empty-string|non-empty-list<non-empty-string> $topics
      * @param ?non-empty-string $groupId null means a new unique group
+     * @param ?Client $client the client of the consumer, the client of the run by default
      */
     public function groupConsumer(
         string|array $topics,
         ?string $groupId = null,
         bool $autocommit = false,
         ?TimeSpan $autocommitInterval = null,
+        ?Client $client = null,
     ): Consumer {
-        $consumer = $this->client->createConsumer($topics, new Consumer\Config(
+        $consumer = ($client ?? $this->client)->createConsumer($topics, new Consumer\Config(
             autoOffsetReset: AutoOffsetReset::Earliest,
             group: new Consumer\GroupConfig(
                 groupId: $groupId ?? $this->groupId(),
@@ -337,11 +339,17 @@ final readonly class Kafka
      *
      * @param list<Config\Endpoint> $seeds
      */
-    public function createClient(array $seeds = [], ?TimeSpan $metadataMaxAge = null): Client
-    {
+    public function createClient(
+        array $seeds = [],
+        ?TimeSpan $metadataMaxAge = null,
+        ?TimeSpan $connectTimeout = null,
+        ?TimeSpan $requestTimeout = null,
+    ): Client {
         $client = new Client(
             new Config(
                 seeds: $seeds === [] ? $this->config->seeds : $seeds,
+                connectTimeout: $connectTimeout,
+                requestTimeout: $requestTimeout,
                 sasl: $this->config->sasl,
                 metadataMaxAge: $metadataMaxAge,
             ),
@@ -363,6 +371,44 @@ final readonly class Kafka
         $this->resources->addCloser('proxy', $proxy->close(...));
 
         return $proxy;
+    }
+
+    /**
+     * Starts a TCP server that accepts connections and then fails as the
+     * fault says. It does not speak the Kafka protocol. The kit closes the
+     * server at the end.
+     */
+    public function brokenPeer(PeerFault $fault): BrokenPeer
+    {
+        $peer = new BrokenPeer($fault);
+        $this->resources->addCloser('broken peer', $peer->close(...));
+
+        return $peer;
+    }
+
+    /**
+     * Runs the step and returns the errors that reached the event loop while
+     * it ran: exceptions that no fiber caught. The result is an empty list.
+     *
+     * @param \Closure(): void $step
+     * @return list<\Throwable>
+     */
+    public function loopErrorsDuring(\Closure $step): array
+    {
+        $errors = [];
+        $previous = EventLoop::getErrorHandler();
+
+        EventLoop::setErrorHandler(static function (\Throwable $error) use (&$errors): void {
+            $errors[] = $error;
+        });
+
+        try {
+            $step();
+        } finally {
+            EventLoop::setErrorHandler($previous);
+        }
+
+        return $errors;
     }
 
     /**

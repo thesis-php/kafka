@@ -212,11 +212,22 @@ Notes:
   takes topic `configs` and a `name`, for example to create a deleted topic
   again. `negotiatedVersion(ApiKey::Produce)` returns the version that the
   client uses with the broker of the run.
-  `createClient(seeds:, metadataMaxAge:)` creates one more client with other
-  settings. `proxy()` starts a TCP proxy to the first seed broker. A client
-  that uses `$proxy->endpoint` loses the broker after `$proxy->disconnect()`.
+  `createClient(seeds:, metadataMaxAge:, connectTimeout:, requestTimeout:)`
+  creates one more client with other settings. `groupConsumer(..., client:)`
+  creates the consumer on such a client. `proxy()` starts a TCP proxy to the
+  first seed broker. A client that uses `$proxy->endpoint` loses the broker
+  after `$proxy->disconnect()`. After `$proxy->stall()` the open connections
+  stay open but never answer; new connections work. `$proxy->accepted()`
+  tells how many client connections the proxy got.
+  `brokenPeer(PeerFault::Close|Stall|Garbage)` starts a TCP server that plays
+  a broken broker: it closes each connection at once, never answers, or
+  answers with a frame length of 2 GiB and garbage. It does not speak the
+  Kafka protocol. `accepted()` and `openConnections()` tell how many
+  connections it got and how many the client has not closed yet.
   `loopWorkAfter($step)` runs the step and returns the event loop work that
   the step left behind (it waits until there is none).
+  `loopErrorsDuring($step)` runs the step and returns the exceptions that
+  reached the event loop while it ran.
 - When the closure ends, the kit closes every client it gave and deletes every
   topic it created. It does this also when the closure fails or runs out of
   time. Do not close clients and do not delete topics at the end of a test.
@@ -352,6 +363,24 @@ internal design is the implementer's choice.
 
 Work that the user asks for directly, without a task, is fine too. Do not add
 it to the journal unless the user asks.
+
+### Findings outside a task
+
+While you work on a task you can find a bug that is not a part of it. Do not
+fix it, and do not leave it only in the final report: a report is read once
+and forgotten.
+
+- Write the finding into `audit-findings.md` of the journal at once, in the
+  section of the task that will fix it. Start the note with "Found in task
+  NNN". Say what you saw, where, and whether it was seen on a broker or only
+  in the code.
+- If no task fits, add a section with a new number to `audit-findings.md` and
+  a line without a link to the task list.
+- First check that the finding is not in the file already. If it is, add only
+  what is new, for example that it is confirmed now.
+- When a task fixes a finding of another section, say so in that section.
+- An implementer subagent does not edit the journal. It lists such findings
+  in its report, and the reviewer writes them down before the final report.
 
 ### Finishing a task
 
