@@ -134,7 +134,7 @@ final readonly class ConsumerCancellationTest
             },
         ]);
 
-        Kafka::connect('kafka-proxied-standalone:9092')->logger($logger)->timeout(TimeSpan::fromSeconds(15))->test(static function (Kafka $kafka) use ($log, &$stalling): void {
+        Kafka::connect('kafka-proxied-standalone:9092')->logger($logger)->timeout(TimeSpan::fromSeconds(15))->test(static function (Kafka $kafka) use (&$stalling): void {
             $proxy = $kafka->proxy(new Endpoint('kafka-proxied-standalone', 9094), 19094);
             $client = $kafka->createClient(seeds: [$proxy->endpoint], requestTimeout: TimeSpan::fromSeconds(1));
 
@@ -153,7 +153,22 @@ final readonly class ConsumerCancellationTest
             Assert::same(array_map(get_debug_type(...), $errors), [CancelledException::class]);
 
             // Nobody waits for the setup now. It must end by itself.
-            self::waitFor($kafka, $log, 'metadata refresh failed', 1);
+            // A new caller waits for the same setup and gets its error.
+            $kafka->poll(static function (Cancellation $cancellation) use ($consumer): ?string {
+                try {
+                    $consumer->consume(ConsumeMode::Poll, $cancellation);
+                } catch (\Throwable $e) {
+                    if ($cancellation->isRequested()) {
+                        throw $e;
+                    }
+
+                    return $e::class;
+                }
+
+                return null;
+            })
+                ->expecting('the end of the setup')
+                ->until(static fn(?string $error) => $error === CancelledException::class);
             $stalling = null;
 
             $kafka->topic(name: $topic);
