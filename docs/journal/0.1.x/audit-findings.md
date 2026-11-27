@@ -288,6 +288,15 @@ How to read this file:
   treats it as success.
 - **The sequence does not wrap at int32 max.**
 
+- Planned in task 018: checked against the code after task 017. All three
+  items are still true in the code. The gap: the reaction of the broker is
+  still not seen, task 018 shows it with a test first. Decided: after a
+  batch failed for good the producer raises its epoch by one on its own
+  and the partition starts at sequence 0, as the Java client does
+  (KIP-360). `DuplicateSequenceNumber`: with one request in flight a
+  broker should never answer with it. Task 018 changes the code only if a
+  test gets the error. The wrap of the sequence moved to task 044.
+
 ## 019 Fetch errors
 
 - **Partition errors are only logged.**
@@ -639,6 +648,21 @@ Found while tasks 013, 014 and 015 were implemented. No task covered them.
   `MIRROR_CONFIG_NOT_AVAILABLE` (144). The client does not retry it. The
   fix adds cases to an `@api` enum. `tests/Protocol/ErrorCodeTest.php` has
   the fixed list of retriable errors and must get the new ones.
+
+## 044 Limits of the idempotent sequence and epoch
+
+Planned in task 018. No integration test can reach these limits, so the
+task first needs a decision on how to test them.
+
+- **The sequence does not wrap at int32 max.** Moved from section 018.
+  `src/Producer/Internal/IdempotencyCoordinator.php` (`reserveSequence()`)
+  only adds. After 2147483647 the Java client goes on with 0. A partition
+  reaches the limit after 2^31 records of one producer. Only seen in the
+  code.
+- **The epoch has no upper limit.** Task 018 raises the epoch by one after
+  each batch that failed for good. The epoch is an int16 on the wire. At
+  32767 the Java client asks for a new producer id with InitProducerId.
+  Only seen in the code.
 
 ## Checked and found correct
 
