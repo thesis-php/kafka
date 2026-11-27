@@ -41,7 +41,7 @@ One line per task, in the order of work:
 - [x] [011 Retriable errors and leader change](011-retriable-errors.md) — [01d14e0](https://github.com/thesis-php/kafka/commit/01d14e0)
 - [x] [012 Generator: client versions and null structs](012-generator-client-versions.md) — [9592309](https://github.com/thesis-php/kafka/commit/9592309)
 - [x] [016 Producer shutdown](016-producer-shutdown.md) — [922c6d7](https://github.com/thesis-php/kafka/commit/922c6d7)
-- [ ] [017 Producer concurrency](017-producer-concurrency.md)
+- [x] [017 Producer concurrency](017-producer-concurrency.md) — [50227a1](https://github.com/thesis-php/kafka/commit/50227a1)
 - [ ] 018 Idempotent producer after a failed batch
 - [ ] 019 Fetch errors
 - [ ] 020 Consumer lifecycle
