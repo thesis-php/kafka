@@ -414,6 +414,22 @@ How to read this file:
   returns as after a `close()`, and the user sees no error. Task 019 removed
   this kind of silent end from the fetch path only.
 
+- Planned in task 020: checked against the code after task 019.
+  - Still true: "Batches are delivered after `close()`" (for a direct
+    consumer; a group consumer drops them since task 021), "The busy flag
+    is set before the generator starts", "Poll mode returns one batch",
+    "`CallableHandler` can wait for itself", "A fatal error leaves the
+    autocommit timer running", and the notes of tasks 019, 021 and 039.
+  - True in part: "`start()` is not exception-safe". Task 039 fixed the
+    cancelled first `consume()`. A failure inside
+    `AssignmentConsumer::start()` still leads to the `\LogicException`.
+  - New, from the code: the cancellation is ignored also in
+    `GroupConsumer::createIterator()`, not only in
+    `AssignmentConsumer::iterate()`. `GroupConsumer::close()` before the
+    first `consume()` does nothing, and a later `consume()` starts the
+    consumer. After a fatal error every later `consume()` throws the same
+    error again.
+
 ## 021 Group close and rebalance
 
 - **`close()` hangs when the buffer is full.**
