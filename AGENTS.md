@@ -227,7 +227,8 @@ Notes:
   `$proxy->drop()` closes the open connections; new connections work. After
   `$proxy->stall()` the open connections stay open but never answer; new
   connections work. After `$proxy->silence()` the open and the new
-  connections never answer. `$proxy->delayAnswers($seconds)` makes each
+  connections never answer. `$proxy->endSilence()` closes the open
+  connections, and new connections work again. `$proxy->delayAnswers($seconds)` makes each
   answer of the broker come later by this number of seconds.
   `$proxy->accepted()` tells how many client connections
   the proxy got. A client learns the addresses of the brokers from the

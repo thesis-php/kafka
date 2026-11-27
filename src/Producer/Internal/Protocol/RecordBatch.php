@@ -9,6 +9,7 @@ use Thesis\Kafka\Crc32;
 use Thesis\Kafka\Exception\CompressionFailed;
 use Thesis\Kafka\Internal\Protocol\Record;
 use Thesis\Kafka\Producer;
+use Thesis\Kafka\Producer\Internal\BatchSequence;
 use Thesis\Kafka\Protocol\Writer;
 
 /**
@@ -74,9 +75,6 @@ final class RecordBatch implements \Countable
         public readonly Compressor $compressor,
         public readonly Record\Attributes $attributes,
         public readonly Crc32 $crc32c = new Crc32\Native(),
-        public readonly int $producerId = -1,
-        public readonly int $producerEpoch = -1,
-        public readonly int $baseSequence = 0,
         public readonly int $partitionLeaderEpoch = -1,
         public readonly int $firstOffset = 0,
     ) {
@@ -113,10 +111,11 @@ final class RecordBatch implements \Countable
     }
 
     /**
+     * @param ?BatchSequence $sequence the numbers of an idempotent producer
      * @return non-empty-string
      * @throws CompressionFailed
      */
-    public function encode(): string
+    public function encode(?BatchSequence $sequence = null): string
     {
         \assert($this->records !== [], 'cannot encode an empty record batch');
 
@@ -138,9 +137,9 @@ final class RecordBatch implements \Countable
         // just to satisfy the static analysis.
         $crc->writeInt64($this->firstTimestamp ?? 0);
         $crc->writeInt64($this->maxTimestamp);
-        $crc->writeInt64($this->producerId);
-        $crc->writeInt16($this->producerEpoch);
-        $crc->writeInt32($this->baseSequence);
+        $crc->writeInt64($sequence->producerId ?? -1);
+        $crc->writeInt16($sequence->producerEpoch ?? -1);
+        $crc->writeInt32($sequence->baseSequence ?? 0);
         $crc->writeInt32(\count($this->records));
         $crc->write($recordsBytes);
 

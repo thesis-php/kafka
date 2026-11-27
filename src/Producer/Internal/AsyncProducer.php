@@ -83,6 +83,7 @@ final class AsyncProducer implements Producer
         $this->sender = new Sender(
             cluster: $cluster,
             config: $config,
+            idempotency: $this->idempotencyCoordinator,
             requestTimeout: $requestTimeout,
             cancellation: $this->abort->getCancellation(),
             // @infection-ignore-all
@@ -205,7 +206,6 @@ final class AsyncProducer implements Producer
             ?? $this->config->defaultTopic
             ?? throw new \LogicException('No producer record topic and no default');
 
-        $idempotency = null;
         // @infection-ignore-all
         $logger = $this->logger->with([
             'topic' => $topic,
@@ -219,7 +219,6 @@ final class AsyncProducer implements Producer
                 // @infection-ignore-all
                 $logger = $logger->with([
                     'producerId' => $idempotency->producerId,
-                    'producerEpoch' => $idempotency->producerEpoch,
                 ]);
 
                 // The producer can close while it waits for the producer id.
@@ -230,13 +229,12 @@ final class AsyncProducer implements Producer
                 topic: $topic,
                 partitioner: $this->config->partitioner->forTopic($topic),
                 metadata: $this->cluster,
-                idempotency: $this->idempotencyCoordinator,
                 sender: $this->sender,
                 config: $this->config,
                 logger: $logger,
             );
 
-            return $producer->queue($record, $idempotency, $wait);
+            return $producer->queue($record, $wait);
         } catch (CancelledException $e) {
             $this->ensureOpen();
 

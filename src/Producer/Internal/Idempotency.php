@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Producer\Internal;
 
 /**
- * The producer's idempotent identity: the broker-assigned id and epoch
- * carried in every record batch.
+ * The producer's idempotent identity: the broker-assigned id and the
+ * newest epoch. A batch gets its numbers as a {@see BatchSequence}.
  *
  * @internal
  */

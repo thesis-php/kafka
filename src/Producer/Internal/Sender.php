@@ -34,6 +34,7 @@ final readonly class Sender
     public function __construct(
         Cluster $cluster,
         private Producer\Config $config,
+        IdempotencyCoordinator $idempotency,
         TimeSpan $requestTimeout,
         private Cancellation $cancellation,
         ContextLogger $logger,
@@ -42,6 +43,7 @@ final readonly class Sender
         $this->producer = new Sender\BatchProducer(
             $cluster,
             $config,
+            $idempotency,
             $requestTimeout,
             // @infection-ignore-all
             $logger->with([

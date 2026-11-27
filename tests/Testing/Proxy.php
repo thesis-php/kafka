@@ -16,7 +16,8 @@ use function Amp\delay;
  * {@see reconnect()} to make it reachable again,
  * {@see drop()} to close the open connections, {@see stall()} to make the
  * open connections silent, {@see silence()} to make also the new connections
- * silent, or {@see delayAnswers()} to make the broker slow.
+ * silent, {@see endSilence()} to end it, or {@see delayAnswers()} to make the
+ * broker slow.
  * Create it with {@see Kafka::proxy()}.
  *
  * @internal
@@ -118,6 +119,16 @@ final class Proxy
     {
         $this->silent = true;
         $this->stall();
+    }
+
+    /**
+     * Undoes {@see silence()}: new connections work again. The proxy closes
+     * the open connections, because it has dropped bytes of them.
+     */
+    public function endSilence(): void
+    {
+        $this->silent = false;
+        $this->drop();
     }
 
     /**
