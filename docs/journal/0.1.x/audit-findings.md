@@ -404,6 +404,15 @@ How to read this file:
 - Task 039 fixed a part of the first item: a cancelled first `consume()` of
   a direct consumer no longer stops the setup, and the setup has the request
   timeout of the client.
+- Found in task 019, from the code, not seen on a broker: a group consumer
+  can end without an error after a time limit of a group request.
+  `Coordinator::request()`
+  (`src/Consumer/Internal/GroupConsumer/Coordinator.php`) throws the
+  `CancelledException` of its own time limit when the last attempt runs out
+  of time. `GroupConsumer::run()` (`src/Consumer/Internal/GroupConsumer.php`)
+  catches every `CancelledException` and completes the queue. So `consume()`
+  returns as after a `close()`, and the user sees no error. Task 019 removed
+  this kind of silent end from the fetch path only.
 
 ## 021 Group close and rebalance
 
@@ -600,6 +609,20 @@ How to read this file:
   `AsyncProducer::doProduce()` reaches the user through a failed future
   too. "TopicProducer is dead" is gone: it is `Exception\ProducerClosed`
   now.
+
+- Found in task 019, from the code, not seen on a broker:
+  `\UnexpectedValueException` can reach the user of a consumer in two
+  places.
+  - `GroupConsumer\OffsetResolver::extract()`
+    (`src/Consumer/Internal/GroupConsumer/OffsetResolver.php`) throws it for
+    a topic id that it does not know.
+  - A read of a `TopicPartition\Map` with a partition that is not in it
+    throws it. `FetchCycle::resolve()`
+    (`src/Consumer/Internal/FetchCycle.php`, new in task 019) reads the
+    answer of `OffsetLister::list()` this way after a reset. If a
+    ListOffsets answer leaves out a partition that was asked for, the
+    exception stops the consumer and leaves `consume()`. A correct broker
+    answers for every partition.
 
 ## 026 Write and read performance
 
