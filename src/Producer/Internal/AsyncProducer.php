@@ -10,11 +10,11 @@ use Amp\CompositeCancellation;
 use Amp\DeferredCancellation;
 use Amp\Future;
 use Amp\NullCancellation;
-use Amp\Pipeline;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Producer;
+use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 /**
@@ -38,22 +38,10 @@ final class AsyncProducer implements Producer
     private array $producers = [];
 
     /**
-     * The single queue every {@see TopicProducer} pushes sealed batches
-     * into, and the single {@see Sender} that drains it.
-     *
-     * One queue and one sender across all topics — deliberately not one per
-     * topic. Ordering only needs to hold per (topic, partition), and a
-     * single sender routes each partition to its own worker, so per-topic
-     * isolation would buy nothing. What it would cost is real: a partition
-     * of topic A and a partition of topic B can share a leader, and one
-     * sender can pack their batches into a single multi-topic ProduceRequest
-     * to that broker. It also keeps the in-flight limit global rather than
-     * multiplying it by the number of topics.
-     *
-     * @var Pipeline\Queue<ReadyBatch>
+     * The single {@see Sender} that every {@see TopicProducer} gives its
+     * released batches to. Ordering only needs to hold per (topic, partition),
+     * and the sender gives each partition its own worker.
      */
-    private readonly Pipeline\Queue $send;
-
     private readonly Sender $sender;
 
     /**
@@ -73,12 +61,15 @@ final class AsyncProducer implements Producer
      */
     private ?Future $closed = null;
 
+    /**
+     * @param TimeSpan $requestTimeout the request timeout of the client
+     */
     public function __construct(
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
+        TimeSpan $requestTimeout,
         private readonly ContextLogger $logger,
     ) {
-        $this->send = new Pipeline\Queue();
         $this->closing = new DeferredCancellation();
         $this->abort = new DeferredCancellation();
         $this->idempotencyCoordinator = new IdempotencyCoordinator(
@@ -92,7 +83,7 @@ final class AsyncProducer implements Producer
         $this->sender = new Sender(
             cluster: $cluster,
             config: $config,
-            send: $this->send,
+            requestTimeout: $requestTimeout,
             cancellation: $this->abort->getCancellation(),
             // @infection-ignore-all
             logger: $this->logger->with([
@@ -140,10 +131,10 @@ final class AsyncProducer implements Producer
         $futures = $this->produce($records, $cancellation);
         if (\is_array($futures)) {
             /** @var non-empty-list<Producer\Produced> */
-            return Future\await($futures);
+            return Future\await($futures, $cancellation);
         }
 
-        return $futures->await();
+        return $futures->await($cancellation);
     }
 
     #[\Override]
@@ -196,10 +187,7 @@ final class AsyncProducer implements Producer
 
         Future\awaitAll($futures);
 
-        // No batch is left, so nobody pushes into the queue any more.
-        // The router loop of the Sender ends when the queue is completed.
-        $this->send->complete();
-        $this->sender->stop();
+        // No batch is left, so the sender has no work.
         $this->cluster->close();
     }
 
@@ -243,7 +231,7 @@ final class AsyncProducer implements Producer
                 partitioner: $this->config->partitioner->forTopic($topic),
                 metadata: $this->cluster,
                 idempotency: $this->idempotencyCoordinator,
-                send: $this->send,
+                sender: $this->sender,
                 config: $this->config,
                 logger: $logger,
             );

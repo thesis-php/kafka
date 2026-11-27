@@ -59,6 +59,7 @@ final readonly class Client
         return new Producer\Internal\AsyncProducer(
             cluster: new Internal\Cluster($this->config, $this->logger),
             config: $config,
+            requestTimeout: $this->config->requestTimeout,
             // @infection-ignore-all
             logger: $this->logger->with([
                 'component' => 'producer',

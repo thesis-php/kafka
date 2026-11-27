@@ -7,14 +7,16 @@ namespace Thesis\Kafka\Testing;
 use Amp\Socket;
 use Thesis\Kafka\Config\Endpoint;
 use function Amp\async;
+use function Amp\delay;
 
 /**
  * A TCP proxy in the test process. It copies bytes between the client and a
  * real broker and knows nothing about the Kafka protocol. A test calls
  * {@see disconnect()} to make the broker unreachable for the client,
  * {@see reconnect()} to make it reachable again,
- * {@see drop()} to close the open connections, or {@see stall()} to make the
- * open connections silent.
+ * {@see drop()} to close the open connections, {@see stall()} to make the
+ * open connections silent, {@see silence()} to make also the new connections
+ * silent, or {@see delayAnswers()} to make the broker slow.
  * Create it with {@see Kafka::proxy()}.
  *
  * @internal
@@ -32,6 +34,10 @@ final class Proxy
     private readonly \SplObjectStorage $stalled;
 
     private bool $disconnected = false;
+
+    private bool $silent = false;
+
+    private float $answerDelay = 0.0;
 
     private int $accepted = 0;
 
@@ -105,6 +111,24 @@ final class Proxy
     }
 
     /**
+     * Stops copying bytes on every open connection and on every new one.
+     * The proxy still accepts connections, but the broker never answers.
+     */
+    public function silence(): void
+    {
+        $this->silent = true;
+        $this->stall();
+    }
+
+    /**
+     * Each answer of the broker reaches the client this number of seconds later.
+     */
+    public function delayAnswers(float $seconds): void
+    {
+        $this->answerDelay = $seconds;
+    }
+
+    /**
      * Closes the listener and every open connection.
      */
     public function close(): void
@@ -136,15 +160,27 @@ final class Proxy
 
             $this->sockets[] = $broker;
 
-            async($this->copy(...), $client, $broker)->ignore();
-            async($this->copy(...), $broker, $client)->ignore();
+            if ($this->silent) {
+                $this->stalled->offsetSet($client);
+                $this->stalled->offsetSet($broker);
+            }
+
+            async($this->copy(...), $client, $broker, false)->ignore();
+            async($this->copy(...), $broker, $client, true)->ignore();
         }
     }
 
-    private function copy(Socket\Socket $from, Socket\Socket $to): void
+    /**
+     * @param bool $answers the bytes go from the broker to the client
+     */
+    private function copy(Socket\Socket $from, Socket\Socket $to, bool $answers): void
     {
         try {
             while (($chunk = $from->read()) !== null) {
+                if ($answers && $this->answerDelay > 0) {
+                    delay($this->answerDelay);
+                }
+
                 if (!$this->stalled->contains($from)) {
                     $to->write($chunk);
                 }

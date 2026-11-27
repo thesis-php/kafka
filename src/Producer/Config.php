@@ -22,11 +22,20 @@ final readonly class Config
 
     public TimeSpan $linger;
 
+    /**
+     * The time that the broker can wait for the replicas. It is sent in each
+     * Produce request. One attempt waits for an answer at most this time plus
+     * {@see \Thesis\Kafka\Config::$requestTimeout}. An attempt without an
+     * answer in this time is retried like a lost connection.
+     */
     public TimeSpan $produceTimeout;
 
     /**
      * @param ?non-empty-string $defaultTopic
-     * @param positive-int $produceAttempts
+     * @param positive-int $produceAttempts The number of attempts to send a batch, also after a timeout.
+     *                                      When the last attempt gets no answer, the records fail with
+     *                                      {@see \Thesis\Kafka\Exception\ProduceTimedOut}. Without
+     *                                      $idempotent, a retry can write the batch twice.
      * @param positive-int $batchSize
      * @param bool $idempotent Requires acks=All — the broker can only guarantee
      *                         de-duplication for durably-replicated writes.

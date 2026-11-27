@@ -5,30 +5,28 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Producer\Internal\Sender;
 
 use Amp\Cancellation;
+use Amp\DeferredFuture;
 use Amp\Future;
-use Amp\Pipeline;
-use Amp\Sync\LocalSemaphore;
 use Thesis\Kafka\Producer\Internal\ReadyBatch;
 use function Amp\async;
 
 /**
+ * Sends the batches of one partition in the order of their release,
+ * with at most the given number of requests in flight.
+ *
  * @internal
  */
 final class PartitionWorker
 {
-    /** @var Pipeline\Queue<ReadyBatch> */
-    private readonly Pipeline\Queue $queue;
+    /**
+     * Batches that wait for a free in-flight slot, each with the future that
+     * completes when a slot takes it.
+     *
+     * @var \SplQueue<array{ReadyBatch, DeferredFuture<null>}>
+     */
+    private readonly \SplQueue $waiting;
 
-    private PartitionWorker\State $state = PartitionWorker\State::Running;
-
-    /** @var Future<null> */
-    private readonly Future $loop;
-
-    /** @var array<non-empty-string, Future<null>> */
-    private array $writes = [];
-
-    /** @var non-empty-string */
-    private string $writeId = 'a';
+    private int $inflight = 0;
 
     /**
      * @param Cancellation $cancellation fails the batches that are not delivered yet
@@ -37,66 +35,37 @@ final class PartitionWorker
     public function __construct(
         private readonly BatchProducer $producer,
         private readonly Cancellation $cancellation,
-        private readonly int $maxInflightProduceRequests = 1,
+        private readonly int $maxInflightProduceRequests,
     ) {
-        $this->queue = new Pipeline\Queue();
-        $this->loop = $this->run();
-    }
-
-    public function enqueue(ReadyBatch $batch): void
-    {
-        // The sender stops workers only after its router loop ends.
-        // So a stopped worker gets no batches.
-        $this->queue->push($batch);
-    }
-
-    public function stop(): void
-    {
-        if ($this->state === PartitionWorker\State::Running) {
-            $this->state = PartitionWorker\State::Closed;
-            $this->queue->complete();
-            $this->loop->await();
-        }
+        $this->waiting = new \SplQueue();
     }
 
     /**
-     * @return Future<null>
+     * Never waits.
+     *
+     * @return Future<null> completes when an in-flight slot takes the batch
      */
-    private function run(): Future
+    public function enqueue(ReadyBatch $batch): Future
     {
-        $producer = $this->producer;
-        $queue = $this->queue;
-        $cancellation = $this->cancellation;
-        $maxInflight = $this->maxInflightProduceRequests;
-        $writes = &$this->writes;
-        $writeId = &$this->writeId;
+        /** @var DeferredFuture<null> $taken */
+        $taken = new DeferredFuture();
+        $this->waiting->enqueue([$batch, $taken]);
+        $this->next();
 
-        /** @var Future<null> */
-        return async(static function () use (
-            $producer,
-            $queue,
-            $cancellation,
-            $maxInflight,
-            &$writes,
-            &$writeId,
-        ): void {
-            $semaphore = new LocalSemaphore($maxInflight);
+        return $taken->getFuture();
+    }
 
-            $batches = $queue->iterate();
+    private function next(): void
+    {
+        while ($this->inflight < $this->maxInflightProduceRequests && !$this->waiting->isEmpty()) {
+            [$batch, $taken] = $this->waiting->dequeue();
+            ++$this->inflight;
+            $taken->complete();
 
-            foreach ($batches as $batch) {
-                $lock = $semaphore->acquire();
-                $idx = $writeId;
-                $writeId = str_increment($writeId);
-                $writes[$idx] = async($producer->produce(...), $batch, $cancellation)->finally(static function () use (
-                    $lock,
-                    $idx,
-                    &$writes,
-                ): void {
-                    $lock->release();
-                    unset($writes[$idx]);
-                });
-            }
-        });
+            async($this->producer->produce(...), $batch, $this->cancellation)->finally(function (): void {
+                --$this->inflight;
+                $this->next();
+            });
+        }
     }
 }

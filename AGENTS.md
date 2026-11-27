@@ -226,7 +226,10 @@ Notes:
   `$proxy->reconnect()` gives it back.
   `$proxy->drop()` closes the open connections; new connections work. After
   `$proxy->stall()` the open connections stay open but never answer; new
-  connections work. `$proxy->accepted()` tells how many client connections
+  connections work. After `$proxy->silence()` the open and the new
+  connections never answer. `$proxy->delayAnswers($seconds)` makes each
+  answer of the broker come later by this number of seconds.
+  `$proxy->accepted()` tells how many client connections
   the proxy got. A client learns the addresses of the brokers from the
   metadata, so a proxy to the main cluster is only on the path of the
   bootstrap. To put every connection behind the proxy, also the one to the
@@ -234,7 +237,9 @@ Notes:
   start `proxy(new Endpoint('kafka-proxied-standalone', 9094), 19094)`: the
   listener on port 9094 advertises `127.0.0.1:19094`, the port of the proxy.
   `proxiedProducer($config)` does this for a producer: on
-  `Kafka::PROXIED_BROKER` it returns `[$proxy, $producer]`. Note that each
+  `Kafka::PROXIED_BROKER` it returns `[$proxy, $producer]`.
+  `proxiedProducer($config, requestTimeout: $limit)` gives the client of
+  the producer another request timeout. Note that each
   kind of request (produce, metadata, ...) has its own connection, so a
   stall affects only the kinds that already have a connection.
   `ProduceLog` keeps the log of a run in memory: give `$log->logger()` to

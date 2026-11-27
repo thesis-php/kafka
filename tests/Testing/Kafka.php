@@ -255,12 +255,13 @@ final readonly class Kafka
      * whose every connection goes through this proxy. Run the scenario on
      * {@see PROXIED_BROKER}.
      *
+     * @param ?TimeSpan $requestTimeout the request timeout of the client of the producer
      * @return array{Proxy, Producer}
      */
-    public function proxiedProducer(Producer\Config $config = new Producer\Config()): array
+    public function proxiedProducer(Producer\Config $config = new Producer\Config(), ?TimeSpan $requestTimeout = null): array
     {
         $proxy = $this->proxy(new Config\Endpoint('kafka-proxied-standalone', 9094), self::PROXIED_PORT);
-        $client = $this->createClient(seeds: [$proxy->endpoint]);
+        $client = $this->createClient(seeds: [$proxy->endpoint], requestTimeout: $requestTimeout);
 
         return [$proxy, $this->producer($config, client: $client)];
     }

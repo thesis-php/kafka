@@ -11,6 +11,7 @@ A pure async PHP client for Apache Kafka.
   - [Sync produce](#sync-produce)
   - [Idempotent producer](#idempotent-producer)
   - [Manual flush](#manual-flush)
+  - [Timeouts and retries](#timeouts-and-retries)
   - [Close](#close)
 - [Consumer](#consumer)
   - [Manual consume](#manual-consume)
@@ -72,6 +73,9 @@ $produced = $future->await();
 does not block the event loop: other coroutines keep running while it waits.
 Pass one record or a list.
 
+A cancellation ends the wait with `Amp\CancelledException`. The records that
+were queued are still sent.
+
 ```php
 $producer->produceSync([
     new Producer\Record(value: 'a', topic: 'events'),
@@ -113,6 +117,45 @@ $producer->flush();
 
 See [examples/produce-manual-flush.php](examples/produce-manual-flush.php).
 
+### Timeouts and retries
+
+Each attempt to send a batch has a time limit: `produceTimeout` of the producer
+plus `requestTimeout` of the client. The broker can use the whole
+`produceTimeout` to wait for the replicas. The rest is for the network.
+
+When a broker does not answer in this time, the attempt fails like a lost
+connection. A connection that was silent for the whole time is closed, and the
+next attempt uses a new one. The producer makes at most `produceAttempts`
+attempts. When the last one gets no answer, the futures of the records fail
+with `Exception\ProduceTimedOut`.
+
+Without `idempotent: true`, a retry can write the batch twice: the broker can
+get the first attempt and only the answer is lost.
+
+```php
+use Thesis\Kafka\Exception\ProduceTimedOut;
+use Thesis\Time\TimeSpan;
+
+$producer = $client->createProducer(new Producer\Config(
+    defaultTopic: 'events',
+    produceTimeout: TimeSpan::fromSeconds(10),
+    produceAttempts: 3,
+));
+
+try {
+    $producer->produceSync(new Producer\Record('hello'));
+} catch (ProduceTimedOut $e) {
+    echo "No answer for {$e->topic}-{$e->partition}\n";
+}
+```
+
+See [examples/produce-timeout.php](examples/produce-timeout.php).
+
+A slow partition makes only the callers of this partition wait. When a
+`produce()` fills a batch, the next calls for this partition wait until the
+partition takes this batch to send it. The calls for other partitions and
+topics do not wait.
+
 ### Close
 
 `close()` sends the open batches at once, without the linger time. Then it
@@ -123,7 +166,7 @@ call, `produce()` throws `Exception\ProducerClosed`.
 $producer->close();
 ```
 
-The broker has no time limit for an answer, so this wait can be long. Give a
+Each attempt has a time limit, but with retries this wait can be long. Give a
 cancellation to limit it. When it fires, the records that are not delivered
 yet fail with `Amp\CancelledException`, and the producer is closed anyway.
 `close()` does not throw in this case. Check the futures of the records.

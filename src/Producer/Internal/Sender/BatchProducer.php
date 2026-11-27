@@ -10,6 +10,7 @@ use Amp\NullCancellation;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\NoAvailablePartitionLeader;
+use Thesis\Kafka\Exception\ProduceTimedOut;
 use Thesis\Kafka\Exception\ProtocolError;
 use Thesis\Kafka\Exception\UnexpectedValue;
 use Thesis\Kafka\Exception\UnknownBroker;
@@ -17,6 +18,7 @@ use Thesis\Kafka\Exception\UnknownPartition;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\Connection;
 use Thesis\Kafka\Internal\ContextLogger;
+use Thesis\Kafka\Internal\RequestTimeout;
 use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\NetworkException;
 use Thesis\Kafka\Producer;
@@ -25,6 +27,7 @@ use Thesis\Kafka\Protocol\Error\PartitionError;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
+use Thesis\Time\TimeSpan;
 use function Amp\delay;
 
 /**
@@ -32,12 +35,21 @@ use function Amp\delay;
  */
 final readonly class BatchProducer
 {
+    /**
+     * @param TimeSpan $requestTimeout the request timeout of the client
+     */
     public function __construct(
         private Cluster $cluster,
         private Producer\Config $config,
+        private TimeSpan $requestTimeout,
         private ContextLogger $logger,
     ) {}
 
+    /**
+     * Sends the batch until it is delivered, fails for good or runs out of attempts.
+     *
+     * @param Cancellation $cancellation fails the batch without a retry
+     */
     public function produce(
         ReadyBatch $batch,
         Cancellation $cancellation = new NullCancellation(),
@@ -98,12 +110,18 @@ final readonly class BatchProducer
             // Wait a little and ask for the new leader before the next attempt.
             try {
                 delay(Retry\backoff($attempt), cancellation: $cancellation);
-                $this->cluster->refreshMetadata([$batch->topic], $cancellation);
-            } catch (CancelledException $e) {
-                $batch->fail($e);
-
-                return;
+                // A silent broker must not hold the batch here either.
+                $this->cluster->refreshMetadata(
+                    [$batch->topic],
+                    RequestTimeout::start($this->requestTimeout->toSeconds(3), $cancellation),
+                );
             } catch (\Throwable $e) {
+                if ($cancellation->isRequested()) {
+                    $batch->fail($e);
+
+                    return;
+                }
+
                 // The next attempt finds out if the broker is still gone.
                 // @infection-ignore-all
                 $this->logger->warning('metadata refresh failed', [
@@ -144,12 +162,27 @@ final readonly class BatchProducer
             'attempt' => $attempt,
         ]);
 
-        $response = $this->cluster->request(
-            request: $this->createRequest($batch, $topicId),
-            cancellation: $cancellation,
-            reply: $this->config->acks === Producer\Acks::None ? Connection\Reply::None : Connection\Reply::Expected,
-            brokerId: $leaderId,
+        // The broker can use the whole produce timeout. The request timeout is for the network.
+        // A connection that was silent for the whole time is closed, so the next attempt uses a new one.
+        $limit = RequestTimeout::start(
+            $this->config->produceTimeout->add($this->requestTimeout)->toSeconds(3),
+            $cancellation,
         );
+
+        try {
+            $response = $this->cluster->request(
+                request: $this->createRequest($batch, $topicId),
+                cancellation: $limit,
+                reply: $this->config->acks === Producer\Acks::None ? Connection\Reply::None : Connection\Reply::Expected,
+                brokerId: $leaderId,
+            );
+        } catch (CancelledException $e) {
+            if ($cancellation->isRequested()) {
+                throw $e;
+            }
+
+            throw new ProduceTimedOut($batch->topic, $batch->partition);
+        }
 
         // No response (Acks::None), no broker-assigned offset/timestamp. We
         // still complete the futures so the caller knows the write
