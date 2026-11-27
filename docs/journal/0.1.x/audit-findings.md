@@ -297,6 +297,24 @@ How to read this file:
   broker should never answer with it. Task 018 changes the code only if a
   test gets the error. The wrap of the sequence moved to task 044.
 
+- Found in task 018, seen on a broker (Kafka 3.9 and Kafka 4.x):
+  - The gap is confirmed. After a batch failed with `MessageTooLarge`, the
+    next batch of the partition got `OutOfOrderSequenceNumber`. Fixed in
+    task 018.
+  - A broker accepts a higher epoch of a known producer id with sequence 0,
+    without a request. With another sequence it answers
+    `OutOfOrderSequenceNumber`. The old epoch then gets
+    `InvalidProducerEpoch` on this partition.
+  - `DuplicateSequenceNumber` is still open, the code did not change. No
+    test can get the error: a copy of one of the last five batches gets a
+    success with the old offset, and an older copy gets
+    `OutOfOrderSequenceNumber`. This was checked with raw requests. Check
+    it again if an idempotent producer may have more than one request in
+    flight.
+  - Kafka 3.9 accepts a first sequence that is not 0 from a producer id
+    that has no state on the partition. This is not a bug of the client. A
+    test of a sequence gap must first write a record to the partition.
+
 ## 019 Fetch errors
 
 - **Partition errors are only logged.**
