@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Consumer\Internal;
 
 use Amp\Future;
+use Revolt\EventLoop\FiberLocal;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\ConsumerSession;
 use Thesis\Kafka\ConsumerSubscription;
@@ -23,17 +24,19 @@ final class CallableHandler implements ConsumerSubscription
     private ?Future $handle = null;
 
     /**
-     * The fiber of the loop while the loop runs.
+     * True only in the coroutine of the loop.
      *
-     * @var ?\Fiber<mixed, mixed, mixed, mixed>
+     * @var FiberLocal<bool>
      */
-    private ?\Fiber $fiber = null;
+    private readonly FiberLocal $insideLoop;
 
     private bool $closed = false;
 
     public function __construct(
         private readonly Consumer $consumer,
-    ) {}
+    ) {
+        $this->insideLoop = new FiberLocal(static fn(): bool => false);
+    }
 
     /**
      * @param callable(non-empty-list<Consumer\Record>, ConsumerSession): void $handler
@@ -46,7 +49,7 @@ final class CallableHandler implements ConsumerSubscription
         }
 
         $this->handle = async(function () use ($handler): void {
-            $this->fiber = \Fiber::getCurrent();
+            $this->insideLoop->set(true);
 
             try {
                 // A consumer that is closed before the loop starts would throw ConsumerClosed.
@@ -58,7 +61,6 @@ final class CallableHandler implements ConsumerSubscription
                     $handler($records, $this->consumer);
                 }
             } finally {
-                $this->fiber = null;
                 $this->consumer->close();
             }
         });
@@ -73,7 +75,7 @@ final class CallableHandler implements ConsumerSubscription
         $this->consumer->close();
 
         // The handler waits for this call, so the loop cannot end before it returns.
-        if ($this->fiber === null || \Fiber::getCurrent() !== $this->fiber) {
+        if (!$this->insideLoop->get()) {
             $this->join();
         }
     }
