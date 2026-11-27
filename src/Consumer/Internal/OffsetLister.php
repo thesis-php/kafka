@@ -12,6 +12,7 @@ use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
+use Thesis\Kafka\Internal\RequestTimeout;
 use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
@@ -19,6 +20,7 @@ use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\TopicPartition;
 use Thesis\Time\TimeSpan;
 use function Amp\async;
+use function Amp\delay;
 
 /**
  * @internal
@@ -33,7 +35,12 @@ final readonly class OffsetLister
     ) {}
 
     /**
+     * Each request has the request timeout of the client.
+     *
      * @param non-empty-list<TopicPartition> $partitions
+     * @param bool $retryTimeouts true sends a request that runs out of time again, until the
+     *                            cancellation of the caller. false throws {@see CancelledException},
+     *                            so the caller can refresh the metadata before a new attempt.
      * @return TopicPartition\Map<non-negative-int>
      * @throws Exception
      */
@@ -41,6 +48,7 @@ final readonly class OffsetLister
         array $partitions,
         Cluster\Metadata $metadata,
         Cancellation $cancellation = new NullCancellation(),
+        bool $retryTimeouts = true,
     ): TopicPartition\Map {
         $byLeader = [];
         foreach ($partitions as $tp) {
@@ -62,6 +70,7 @@ final readonly class OffsetLister
                 $leaderId,
                 $leaderPartitions,
                 $cancellation,
+                $retryTimeouts,
             );
         }
 
@@ -90,6 +99,7 @@ final readonly class OffsetLister
         int $leaderId,
         array $partitions,
         Cancellation $cancellation,
+        bool $retryTimeouts,
     ): TopicPartition\Map {
         /** @var array<non-empty-string, list<Generated\ListOffsetsRequest\ListOffsetsTopic\ListOffsetsPartition>> $partitionsByTopic */
         $partitionsByTopic = [];
@@ -117,21 +127,7 @@ final readonly class OffsetLister
             timeoutMs: (int) $this->requestTimeout->toMilliseconds(3),
         );
 
-        // The leader from the metadata may not know a new topic yet. It answers
-        // with a retriable error, so the request is sent again.
-        $response = $this->cluster->request(
-            request: $request,
-            cancellation: $cancellation,
-            brokerId: $leaderId,
-            retry: new Retry\Operation(
-                static fn(Generated\ListOffsetsResponse $response): ErrorCode => (Errors::for($response)->errors[0] ?? null)?->code() ?? ErrorCode::None,
-                // @infection-ignore-all
-                logger: $this->logger->with([
-                    'component' => 'retry',
-                    'operation' => 'listOffsets',
-                ]),
-            ),
-        );
+        $response = $this->send($leaderId, $request, $cancellation, $retryTimeouts);
 
         $errors = Errors::for($response);
         if (!$errors->empty()) {
@@ -162,5 +158,52 @@ final readonly class OffsetLister
         }
 
         return $result;
+    }
+
+    /**
+     * Each attempt has its own time limit. A connection that was silent for
+     * the whole time is closed, so the next attempt uses a new one.
+     *
+     * @param non-negative-int $leaderId
+     * @throws Exception
+     * @throws CancelledException
+     */
+    private function send(
+        int $leaderId,
+        Generated\ListOffsetsRequest $request,
+        Cancellation $cancellation,
+        bool $retryTimeouts,
+    ): Generated\ListOffsetsResponse {
+        for ($attempt = 1;; ++$attempt) {
+            try {
+                // The leader from the metadata may not know a new topic yet. It answers
+                // with a retriable error, so the request is sent again.
+                return $this->cluster->request(
+                    request: $request,
+                    cancellation: RequestTimeout::start($this->requestTimeout->toSeconds(3), $cancellation),
+                    brokerId: $leaderId,
+                    retry: new Retry\Operation(
+                        static fn(Generated\ListOffsetsResponse $response): ErrorCode => (Errors::for($response)->errors[0] ?? null)?->code() ?? ErrorCode::None,
+                        // @infection-ignore-all
+                        logger: $this->logger->with([
+                            'component' => 'retry',
+                            'operation' => 'listOffsets',
+                        ]),
+                    ),
+                );
+            } catch (CancelledException $e) {
+                if ($cancellation->isRequested() || !$retryTimeouts) {
+                    throw $e;
+                }
+
+                // @infection-ignore-all
+                $this->logger->warning('list offsets timed out, retrying', [
+                    'nodeId' => $leaderId,
+                    'attempt' => $attempt,
+                ]);
+
+                delay(Retry\backoff($attempt), cancellation: $cancellation);
+            }
+        }
     }
 }

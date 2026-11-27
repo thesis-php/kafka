@@ -39,15 +39,17 @@ final readonly class DirectConsumerFactory
             'isolationLevel' => $config->isolationLevel->name,
         ]);
 
-        $consumer = new AssignmentConsumer(
-            cluster: $cluster,
-            config: $config,
-            logger: $logger,
-        );
-
         $offsets = new OffsetLister(
             cluster: $cluster,
             config: $config,
+            requestTimeout: $this->config->requestTimeout,
+            logger: $logger,
+        );
+
+        $consumer = new AssignmentConsumer(
+            cluster: $cluster,
+            config: $config,
+            offsets: $offsets,
             requestTimeout: $this->config->requestTimeout,
             logger: $logger,
         );

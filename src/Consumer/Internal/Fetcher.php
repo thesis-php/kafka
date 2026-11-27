@@ -5,10 +5,6 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Consumer\Internal;
 
 use Amp\Cancellation;
-use Amp\CancelledException;
-use Amp\DeferredCancellation;
-use Amp\Future;
-use Amp\NullCancellation;
 use Amp\Pipeline;
 use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
@@ -16,128 +12,105 @@ use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
+use Thesis\Kafka\Internal\RequestTimeout;
+use Thesis\Kafka\Protocol\Error;
 use Thesis\Kafka\Protocol\ErrorCode;
+use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\TopicPartition;
-use function Amp\async;
+use Thesis\Time\TimeSpan;
 
 /**
+ * The fetch loop of one leader. It reads the partitions that this broker
+ * leads in {@see SubscriptionState}. A partition that it cannot read goes
+ * to the recovery of {@see FetchCycle}.
+ *
  * @internal
  */
-final class Fetcher
+final readonly class Fetcher
 {
-    /** @var ?Future<null> */
-    private ?Future $loop = null;
-
-    private ?DeferredCancellation $cancel = null;
-
     /**
      * @param non-negative-int $leaderId
      * @param Pipeline\Queue<non-empty-list<Consumer\Record>> $queue
+     * @param TimeSpan $requestTimeout the request timeout of the client
      */
     public function __construct(
-        private readonly int $leaderId,
-        private readonly Cluster $cluster,
-        private readonly SubscriptionState $subscription,
-        private readonly Consumer\Internal\Protocol\RecordBatch $batch,
-        private readonly Consumer\Config $config,
-        private readonly Pipeline\Queue $queue,
-        private readonly ContextLogger $logger,
+        private int $leaderId,
+        private Cluster $cluster,
+        private SubscriptionState $subscription,
+        private FetchCycle $cycle,
+        private Consumer\Internal\Protocol\RecordBatch $batch,
+        private Consumer\Config $config,
+        private TimeSpan $requestTimeout,
+        private Pipeline\Queue $queue,
+        private ContextLogger $logger,
     ) {}
 
-    public function start(): void
-    {
-        $this->cancel ??= new DeferredCancellation();
-        $this->loop ??= async($this->run(...), $this->cancel->getCancellation());
-    }
-
-    public function stop(Cancellation $cancellation = new NullCancellation()): void
+    /**
+     * Fetches until this broker leads no partition. Never throws: an error
+     * that cannot be fixed stops the whole {@see FetchCycle}.
+     */
+    public function run(Cancellation $cancellation): void
     {
         try {
-            // Signal the loop to unwind: any in-flight fetch / queue push
-            // sees this cancellation and throws CancelledException, which
-            // run() catches and exits on.
-            $this->cancel?->cancel();
+            while (true) {
+                $partitions = $this->subscription->partitionsForLeader($this->leaderId);
+                if (\count($partitions) === 0) {
+                    return;
+                }
 
-            // Wait for the loop to actually finish unwinding. await() here
-            // (not ignore()) means stop() returns only once the loop has
-            // released its resources.
-            $this->loop?->await($cancellation);
-        } catch (CancelledException) {
-            // Expected: cancellation is how we asked it to stop.
-        } finally {
-            $this->cancel = null;
-            $this->loop = null;
-        }
-    }
+                // The broker can hold the fetch for maxWait. The request timeout is for the network.
+                // A connection that was silent for the whole time is closed, so the next attempt uses a new one.
+                $limit = RequestTimeout::start(
+                    $this->config->maxWait->add($this->requestTimeout)->toSeconds(3),
+                    $cancellation,
+                );
 
-    private function run(Cancellation $cancellation): void
-    {
-        while (!$cancellation->isRequested()) {
-            $partitions = $this->subscription->partitionsForLeader($this->leaderId);
-            if (\count($partitions) === 0) {
-                // No partitions led by this broker anymore — nothing to do.
+                $request = $this->createFetchRequest($partitions, $limit);
+                if ($request === null) {
+                    continue;
+                }
+
+                $response = $this->cluster->request(
+                    $request,
+                    $limit,
+                    brokerId: $this->leaderId,
+                );
+
+                $this->dispatch($response, $cancellation);
+            }
+        } catch (\Throwable $e) {
+            // The cycle has stopped. The error is a result of the stop.
+            if ($cancellation->isRequested()) {
                 return;
             }
 
-            try {
-                $response = $this->fetch($partitions, $cancellation);
-            } catch (CancelledException $e) {
-                throw $e;
-            } catch (\Throwable $exception) {
-                // @infection-ignore-all
-                $this->logger->warning('fetch loop error, refreshing metadata', [
-                    'exception' => $exception,
-                ]);
+            if (!FetchCycle::retriable($e)) {
+                $this->cycle->fail($e);
 
-                // Transport-level failure or a leader that moved.
-                // Refresh so the consumer can re-resolve leaders, then
-                // retry the loop.
-                $this->cluster->refreshMetadata($this->subscription->topics, $cancellation);
-                continue;
+                return;
             }
 
-            $this->dispatch($response, $cancellation);
+            // @infection-ignore-all
+            $this->logger->warning('fetch failed, retrying', [
+                'exception' => $e,
+            ]);
+
+            foreach ($this->subscription->partitionsForLeader($this->leaderId) as $tp) {
+                $this->cycle->retry($tp);
+            }
         }
     }
 
     /**
      * @param TopicPartition\Map<non-negative-int> $partitions
-     * @throws Exception
-     * @throws CancelledException
-     */
-    private function fetch(
-        TopicPartition\Map $partitions,
-        Cancellation $cancellation,
-    ): Generated\FetchResponse {
-        $request = $this->createFetchRequest($partitions, $cancellation);
-
-        $response = $this->cluster->request(
-            $request,
-            $cancellation,
-            brokerId: $this->leaderId,
-        );
-
-        $batchCount = 0;
-        foreach ($response->responses as $topicResponse) {
-            foreach ($topicResponse->partitions as $partitionResponse) {
-                if ($partitionResponse->records !== null && $partitionResponse->records !== '') {
-                    ++$batchCount;
-                }
-            }
-        }
-
-        return $response;
-    }
-
-    /**
-     * @param TopicPartition\Map<non-negative-int> $partitions
+     * @return ?Generated\FetchRequest null when no partition can be fetched now
      * @throws Exception
      */
     private function createFetchRequest(
         TopicPartition\Map $partitions,
         Cancellation $cancellation,
-    ): Generated\FetchRequest {
+    ): ?Generated\FetchRequest {
         /** @var ?UuidInterface $replicaDirectoryId */
         static $replicaDirectoryId = null;
         $replicaDirectoryId ??= Uuid::fromString(Uuid::NIL);
@@ -149,10 +122,31 @@ final class Fetcher
         /** @var array<non-empty-string, list<Generated\FetchRequest\FetchTopic\FetchPartition>> $partitionsByTopic */
         $partitionsByTopic = [];
 
+        /** @var array<non-empty-string, UuidInterface> $topicIds */
+        $topicIds = [];
+
         foreach ($partitions as $tp) {
+            // The metadata has lost the topic, for example after a deletion.
+            // The recovery finds out if the topic comes back.
+            $topicMetadata = $metadata->topics[$tp->topic] ?? null;
+            if ($topicMetadata === null) {
+                // @infection-ignore-all
+                $this->logger->warning('partition fetch failed, retrying', [
+                    'topic' => $tp->topic,
+                    'partition' => $tp->partition,
+                    'offset' => $partitions[$tp],
+                    'error' => 'unknown topic',
+                ]);
+
+                $this->cycle->retry($tp);
+
+                continue;
+            }
+
             // Send the leader epoch we know. The broker rejects the fetch if
             // this epoch is older than its own. That protects us from a stale leader.
-            $leaderEpoch = $metadata->topics[$tp->topic]->partitions[$tp->partition]->leaderEpoch ?? -1;
+            $leaderEpoch = $topicMetadata->partitions[$tp->partition]->leaderEpoch ?? -1;
+            $topicIds[$tp->topic] = $topicMetadata->topicId;
 
             $partitionsByTopic[$tp->topic][] = new Generated\FetchRequest\FetchTopic\FetchPartition(
                 partition: $tp->partition,
@@ -166,15 +160,16 @@ final class Fetcher
             );
         }
 
-        $topics = [];
-        foreach ($partitionsByTopic as $topic => $fetchPartitions) {
-            $meta = $metadata->topics[$topic]
-                ?? throw new Exception\UnknownTopic($topic);
+        if ($topicIds === []) {
+            return null;
+        }
 
+        $topics = [];
+        foreach ($topicIds as $topic => $topicId) {
             $topics[] = new Generated\FetchRequest\FetchTopic(
                 topic: $topic,
-                topicId: $meta->topicId,
-                partitions: $fetchPartitions,
+                topicId: $topicId,
+                partitions: $partitionsByTopic[$topic] ?? [],
             );
         }
 
@@ -197,10 +192,18 @@ final class Fetcher
         );
     }
 
+    /**
+     * @throws Exception
+     */
     private function dispatch(
         Generated\FetchResponse $response,
         Cancellation $cancellation,
     ): void {
+        $error = ErrorCode::tryFrom($response->errorCode) ?? ErrorCode::UnknownServerError;
+        if ($error !== ErrorCode::None) {
+            throw new Exception\ProtocolError(new Errors([new Error\TopLevelError($error)]));
+        }
+
         foreach ($response->responses as $topicResponse) {
             $topic = $topicResponse->topic;
             if ($topic === '') {
@@ -220,20 +223,18 @@ final class Fetcher
             }
 
             foreach ($topicResponse->partitions as $partitionResponse) {
+                $partition = $partitionResponse->partitionIndex;
+                \assert($partition >= 0);
+
+                $tp = new TopicPartition($topic, $partition);
+
                 $error = ErrorCode::tryFrom($partitionResponse->errorCode) ?? ErrorCode::UnknownServerError;
                 if ($error !== ErrorCode::None) {
-                    // @infection-ignore-all
-                    $this->logger->warning('fetch error for partition', [
-                        'topic' => $topic,
-                        'partition' => $partitionResponse->partitionIndex,
-                        'error' => $error->name,
-                    ]);
+                    // The other partitions of the answer go on.
+                    $this->recover($tp, $error);
 
                     continue;
                 }
-
-                $partition = $partitionResponse->partitionIndex;
-                \assert($partition >= 0);
 
                 $records = $partitionResponse->records;
 
@@ -243,13 +244,49 @@ final class Fetcher
                     continue;
                 }
 
-                $this->dispatchRecords(
-                    new TopicPartition($topic, $partition),
-                    $records,
-                    $cancellation,
-                );
+                $this->dispatchRecords($tp, $records, $cancellation);
             }
         }
+    }
+
+    /**
+     * @throws Exception
+     */
+    private function recover(TopicPartition $tp, ErrorCode $error): void
+    {
+        $offset = $this->subscription->position($tp);
+
+        if ($error === ErrorCode::OffsetOutOfRange) {
+            if ($this->config->autoOffsetReset === Consumer\AutoOffsetReset::None) {
+                throw new Exception\OffsetOutOfRange($tp, $offset);
+            }
+
+            // @infection-ignore-all
+            $this->logger->warning('offset out of range, resetting', [
+                'topic' => $tp->topic,
+                'partition' => $tp->partition,
+                'offset' => $offset,
+                'reset' => $this->config->autoOffsetReset->name,
+            ]);
+
+            $this->cycle->reset($tp);
+
+            return;
+        }
+
+        if (!$error->retriable()) {
+            throw new Exception\ProtocolError(new Errors([new Error\PartitionError($tp->topic, $tp->partition, $error)]));
+        }
+
+        // @infection-ignore-all
+        $this->logger->warning('partition fetch failed, retrying', [
+            'topic' => $tp->topic,
+            'partition' => $tp->partition,
+            'offset' => $offset,
+            'error' => $error->name,
+        ]);
+
+        $this->cycle->retry($tp);
     }
 
     /**

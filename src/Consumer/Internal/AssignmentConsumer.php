@@ -6,7 +6,6 @@ namespace Thesis\Kafka\Consumer\Internal;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\Future;
 use Amp\NullCancellation;
 use Amp\Pipeline;
 use Amp\TimeoutCancellation;
@@ -17,12 +16,13 @@ use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\TopicPartition;
-use function Amp\async;
+use Thesis\Time\TimeSpan;
 
 /**
  * The fetch core shared by every consumer kind (manual, group). Given a concrete set of
- * (topic, partition) → start offset, it spins up one fetch loop per leader,
- * decodes the batches, and yields them through {@see AssignmentConsumer::consume()}. It does not decide
+ * (topic, partition) → start offset, it spins up one fetch loop per leader ({@see FetchCycle}),
+ * decodes the batches, and yields them through {@see AssignmentConsumer::consume()}. An error of the
+ * fetch that cannot be fixed leaves {@see AssignmentConsumer::consume()} as an exception. It does not decide
  * which partitions to read — callers ({@see DirectConsumer}, {@see GroupConsumer}) resolve
  * that and hand it in.
  *
@@ -44,16 +44,20 @@ final class AssignmentConsumer
 
     private readonly Protocol\RecordBatch $batch;
 
-    /** @var array<int, Fetcher> */
-    private array $fetchers = [];
+    private ?FetchCycle $cycle = null;
 
     private AssignmentConsumer\ConsumerState $consumer = AssignmentConsumer\ConsumerState::Idle;
 
     private AssignmentConsumer\ConsumeState $consume = AssignmentConsumer\ConsumeState::Idle;
 
+    /**
+     * @param TimeSpan $requestTimeout the request timeout of the client
+     */
     public function __construct(
         private readonly Cluster $cluster,
         private readonly Consumer\Config $config,
+        private readonly OffsetLister $offsets,
+        private readonly TimeSpan $requestTimeout,
         private readonly ContextLogger $logger,
     ) {
         $this->batch = new Protocol\RecordBatch(
@@ -138,21 +142,22 @@ final class AssignmentConsumer
 
         $this->consumer = AssignmentConsumer\ConsumerState::Idle;
 
-        $this->queue?->complete();
-
-        $fetchers = $this->fetchers;
-        $this->fetchers = [];
-
-        $futures = array_map(
-            static fn(Fetcher $fetcher) => async($fetcher->stop(...)),
-            array_values($fetchers),
-        );
-
-        Future\awaitAll($futures);
-
+        // The wait below lets another coroutine call start(). Clear the state first,
+        // so this stop() does not touch the new cycle.
+        $cycle = $this->cycle;
+        $queue = $this->queue;
+        $this->cycle = null;
         $this->queue = null;
         $this->iterator = null;
         $this->subscription = null;
+
+        // The loops end first, so no loop pushes to a completed queue.
+        $cycle?->stop();
+
+        // An error of the fetch has completed the queue already.
+        if ($queue !== null && !$queue->isComplete()) {
+            $queue->complete();
+        }
     }
 
     /**
@@ -208,24 +213,18 @@ final class AssignmentConsumer
         SubscriptionState $subscription,
         Pipeline\Queue $queue,
     ): void {
-        foreach ($subscription->leaders() as $leaderId) {
-            $fetcher = new Fetcher(
-                leaderId: $leaderId,
-                cluster: $this->cluster,
-                subscription: $subscription,
-                batch: $this->batch,
-                config: $this->config,
-                queue: $queue,
-                // @infection-ignore-all
-                logger: $this->logger->with([
-                    'component' => 'consumer.fetcher',
-                    'nodeId' => $leaderId,
-                ]),
-            );
+        $this->cycle = new FetchCycle(
+            cluster: $this->cluster,
+            subscription: $subscription,
+            offsets: $this->offsets,
+            batch: $this->batch,
+            config: $this->config,
+            requestTimeout: $this->requestTimeout,
+            queue: $queue,
+            logger: $this->logger,
+        );
 
-            $this->fetchers[$leaderId] = $fetcher;
-            $fetcher->start();
-        }
+        $this->cycle->start();
     }
 
     /**
