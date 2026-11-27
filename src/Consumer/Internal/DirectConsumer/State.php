@@ -10,6 +10,7 @@ namespace Thesis\Kafka\Consumer\Internal\DirectConsumer;
 enum State
 {
     case Idle;
+    case Starting;
     case Running;
     case Closed;
 }

@@ -717,6 +717,15 @@ Found while tasks 013, 014 and 015 were implemented. No task covered them.
   in `Cluster::createMetadataSnapshot()` has the raw number of the response
   in `errorCode`, and the name of the error from the enum. For a code that
   the enum does not have the two do not match. Harmless.
+- Found in task 020, seen on a broker once, not checked in the code:
+  `Internal\Cluster::close()` did not end a metadata lookup that waited
+  for a connection to a silent broker. The scenario: a direct consumer
+  behind a proxy after `$proxy->silence()`, a request timeout of 10 s,
+  `close()` during the setup. The lookup was still waiting 5 s after
+  `close()`. It looks like a request that waits for a connection that is
+  still opening does not see the close of the cluster. Task 020 does not
+  depend on it any more: `DirectConsumer` ends its setup with its own
+  cancellation.
 
 ## 043 Error codes after 133
 

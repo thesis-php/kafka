@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Consumer\Internal;
 
 use Amp\Cancellation;
+use Amp\CompositeCancellation;
+use Amp\DeferredCancellation;
 use Amp\Future;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
@@ -16,6 +18,10 @@ use Thesis\Time\TimeSpan;
 use function Amp\async;
 
 /**
+ * Not started, starting, reading, or closed. A failed setup leaves the consumer
+ * not started, so the next {@see consume()} runs the setup again. A fatal error
+ * of the fetch closes the consumer.
+ *
  * @internal
  */
 final class DirectConsumer implements Consumer
@@ -23,10 +29,19 @@ final class DirectConsumer implements Consumer
     /** @var ?Future<null> */
     private ?Future $setup = null;
 
+    /** @var ?Future<null> */
+    private ?Future $shutdown = null;
+
     private DirectConsumer\State $state = DirectConsumer\State::Idle;
 
     /**
+     * Fires at close(). It ends the setup and the callers that wait for it.
+     */
+    private readonly DeferredCancellation $closing;
+
+    /**
      * @param non-empty-list<non-empty-string> $topics
+     * @param Buffer<non-empty-list<Consumer\Record>> $buffer
      */
     public function __construct(
         private readonly Cluster $cluster,
@@ -35,28 +50,43 @@ final class DirectConsumer implements Consumer
         private readonly array $topics,
         private readonly ContextLogger $logger,
         private readonly TimeSpan $requestTimeout,
-    ) {}
+        private readonly Buffer $buffer,
+    ) {
+        $this->closing = new DeferredCancellation();
+    }
 
     #[\Override]
     public function consume(
         Consumer\ConsumeMode $mode = Consumer\ConsumeMode::Stream,
         ?Cancellation $cancellation = null,
     ): iterable {
-        if ($this->state === DirectConsumer\State::Closed) {
-            throw new Exception\ConsumerClosed();
-        }
-
         if ($this->state === DirectConsumer\State::Idle) {
-            $this->state = DirectConsumer\State::Running;
+            $this->state = DirectConsumer\State::Starting;
 
             // The setup does not use the cancellation of this caller: another
             // caller can wait for it too. Each caller waits with its own cancellation.
             $this->setup = async($this->setup(...))->ignore();
         }
 
-        $this->setup?->await($cancellation);
+        $setup = $this->setup;
 
-        return $this->consumer->consume($mode, $cancellation);
+        if ($setup !== null) {
+            try {
+                $closing = $this->closing->getCancellation();
+                $setup->await($cancellation === null ? $closing : new CompositeCancellation($cancellation, $closing));
+            } catch (\Throwable $e) {
+                if ($this->state !== DirectConsumer\State::Closed) {
+                    throw $e;
+                }
+            }
+
+            // close() during the setup ends the callers that wait for it.
+            if ($this->state === DirectConsumer\State::Closed) {
+                return [];
+            }
+        }
+
+        return $this->buffer->read($mode, $cancellation, self::records(...));
     }
 
     #[\Override]
@@ -68,13 +98,14 @@ final class DirectConsumer implements Consumer
     #[\Override]
     public function close(): void
     {
-        if ($this->state === DirectConsumer\State::Closed) {
-            return;
+        if ($this->state !== DirectConsumer\State::Closed) {
+            $this->state = DirectConsumer\State::Closed;
+            $this->closing->cancel();
+            $this->buffer->close();
+            $this->shutdown = async($this->shutdown(...));
         }
 
-        $this->state = DirectConsumer\State::Closed;
-        $this->consumer->stop();
-        $this->cluster->close();
+        $this->shutdown?->await();
     }
 
     /**
@@ -85,12 +116,54 @@ final class DirectConsumer implements Consumer
         try {
             $this->start();
         } catch (\Throwable $e) {
-            $this->state = DirectConsumer\State::Idle;
+            // A failed setup is not fatal. A close() during the setup wins.
+            if ($this->state === DirectConsumer\State::Starting) {
+                $this->state = DirectConsumer\State::Idle;
+            }
 
             throw $e;
         } finally {
             $this->setup = null;
         }
+
+        // close() came during the setup, before the fetch started. So it did not stop the fetch.
+        if ($this->state === DirectConsumer\State::Closed) {
+            $this->consumer->stop();
+
+            return;
+        }
+
+        $this->state = DirectConsumer\State::Running;
+    }
+
+    /**
+     * The fetch calls it from one of its loops, so the consumer stops in another
+     * coroutine: the stop of the fetch waits for every loop.
+     */
+    private function fail(\Throwable $error): void
+    {
+        if ($this->state !== DirectConsumer\State::Running) {
+            return;
+        }
+
+        $this->state = DirectConsumer\State::Closed;
+        $this->buffer->fail($error);
+        $this->shutdown = async($this->shutdown(...));
+    }
+
+    private function shutdown(): void
+    {
+        $this->consumer->stop();
+        $this->cluster->close();
+    }
+
+    /**
+     * @param non-empty-list<Consumer\Record> $records
+     * @return non-empty-list<Consumer\Record>
+     */
+    private static function records(array $records): array
+    {
+        return $records;
     }
 
     /**
@@ -115,7 +188,12 @@ final class DirectConsumer implements Consumer
         \assert($partitions !== []);
 
         $offsets = $this->offsets->list($partitions, $metadata, $this->timeout());
-        $this->consumer->start($offsets, $this->timeout());
+        $this->consumer->start(
+            $offsets,
+            deliver: $this->buffer->push(...),
+            failed: $this->fail(...),
+            cancellation: $this->timeout(),
+        );
 
         // @infection-ignore-all
         $this->logger->debug('consumer started', [
@@ -126,9 +204,10 @@ final class DirectConsumer implements Consumer
     /**
      * No caller limits the setup, so each step has the request timeout of the
      * client. Without it a broker that does not answer blocks the setup forever.
+     * close() ends each step at once.
      */
     private function timeout(): Cancellation
     {
-        return RequestTimeout::start($this->requestTimeout->toSeconds(3));
+        return RequestTimeout::start($this->requestTimeout->toSeconds(3), $this->closing->getCancellation());
     }
 }

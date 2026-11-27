@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Consumer\Internal;
 
-use Amp\CancelledException;
-use Amp\DeferredCancellation;
 use Amp\Future;
+use Revolt\EventLoop\FiberLocal;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\ConsumerSession;
 use Thesis\Kafka\ConsumerSubscription;
@@ -14,19 +13,29 @@ use Thesis\Kafka\Exception;
 use function Amp\async;
 
 /**
+ * The loop runs until {@see close()} or an error, also when nobody keeps
+ * this handle.
+ *
  * @internal
  */
 final class CallableHandler implements ConsumerSubscription
 {
-    private readonly DeferredCancellation $cancel;
-
-    /** @var ?Future<mixed> */
+    /** @var ?Future<null> */
     private ?Future $handle = null;
+
+    /**
+     * True only in the coroutine of the loop.
+     *
+     * @var FiberLocal<bool>
+     */
+    private readonly FiberLocal $insideLoop;
+
+    private bool $closed = false;
 
     public function __construct(
         private readonly Consumer $consumer,
     ) {
-        $this->cancel = new DeferredCancellation();
+        $this->insideLoop = new FiberLocal(static fn(): bool => false);
     }
 
     /**
@@ -39,22 +48,20 @@ final class CallableHandler implements ConsumerSubscription
             throw new Exception\ConsumerBusy();
         }
 
-        $consumer = $this->consumer;
-        $cancellation = $this->cancel->getCancellation();
+        $this->handle = async(function () use ($handler): void {
+            $this->insideLoop->set(true);
 
-        $this->handle = async(static function () use (
-            $handler,
-            $consumer,
-            $cancellation,
-        ): void {
             try {
-                foreach ($consumer->consume(cancellation: $cancellation) as $records) {
-                    $handler($records, $consumer);
+                // A consumer that is closed before the loop starts would throw ConsumerClosed.
+                if ($this->closed) {
+                    return;
                 }
-            } catch (CancelledException) {
-                // expected on close()
+
+                foreach ($this->consumer->consume() as $records) {
+                    $handler($records, $this->consumer);
+                }
             } finally {
-                $consumer->close();
+                $this->consumer->close();
             }
         });
     }
@@ -62,18 +69,20 @@ final class CallableHandler implements ConsumerSubscription
     #[\Override]
     public function close(): void
     {
-        $this->cancel->cancel();
-        $this->join();
+        $this->closed = true;
+
+        // A closed consumer gives no other batch, so the loop ends after the current batch.
+        $this->consumer->close();
+
+        // The handler waits for this call, so the loop cannot end before it returns.
+        if (!$this->insideLoop->get()) {
+            $this->join();
+        }
     }
 
     #[\Override]
     public function join(): void
     {
         $this->handle?->await();
-    }
-
-    public function __destruct()
-    {
-        $this->cancel->cancel();
     }
 }

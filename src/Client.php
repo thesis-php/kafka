@@ -111,6 +111,8 @@ final readonly class Client
      * {@see ConsumerSubscription::close()} to stop the loop and release the
      * consumer, or {@see ConsumerSubscription::join()} to block until it
      * finishes (and surface any error the handler or fetch loop threw).
+     * The loop runs until it is closed or fails, also when the handle is not
+     * kept. The handler can close the subscription too.
      *
      * For direct, pull-based control over reading — including Poll mode and
      * manual iteration — create a consumer with {@see createConsumer()} and

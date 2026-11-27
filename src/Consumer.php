@@ -38,11 +38,21 @@ interface Consumer extends ConsumerSession
      * single cursor over its buffer, so a second concurrent {@see consume()} would
      * split batches with the first. Calling {@see consume()} while another is
      * running throws {@see Exception\ConsumerBusy}. Calling it on a closed consumer
-     * throws {@see Exception\ConsumerClosed}.
+     * throws {@see Exception\ConsumerClosed}. An iterable holds the consumer from
+     * the call until its iteration ends or the iterable is destroyed.
+     *
+     * After the cancellation has fired or after {@see close()}, the iterable gives
+     * no other batch and ends without an exception.
+     *
+     * A fatal error closes the consumer: the fetch stops, a group member leaves
+     * the group, and the connections are closed. The waiting consume() throws
+     * this error, or the next one when none is waiting. Later calls throw
+     * {@see Exception\ConsumerClosed}.
      *
      * @return iterable<non-empty-list<Consumer\Record>>
      * @throws Exception\ConsumerClosed
      * @throws Exception\ConsumerBusy another {@see consume()} is already running
+     * @throws Exception\RequestTimedOut a request of the consumer group got no answer in time
      * @throws Exception
      */
     public function consume(

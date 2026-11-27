@@ -44,7 +44,7 @@ One line per task, in the order of work:
 - [x] [017 Producer concurrency](017-producer-concurrency.md) — [50227a1](https://github.com/thesis-php/kafka/commit/50227a1)
 - [x] [018 Idempotent producer after a failed batch](018-idempotent-producer-after-failed-batch.md) — [1800c01](https://github.com/thesis-php/kafka/commit/1800c01)
 - [x] [019 Fetch errors](019-fetch-errors.md) — [3c24f51](https://github.com/thesis-php/kafka/commit/3c24f51)
-- [ ] [020 Consumer lifecycle](020-consumer-lifecycle.md)
+- [x] [020 Consumer lifecycle](020-consumer-lifecycle.md) — [baca76c](https://github.com/thesis-php/kafka/commit/baca76c)
 - [ ] 022 Group commits
 - [ ] 009 Topic ids in offset commit
 - [ ] 023 Group membership

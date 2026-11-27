@@ -252,7 +252,10 @@ Notes:
   `proxiedProducer($config, requestTimeout: $limit)` gives the client of
   the producer another request timeout. `proxiedConsumer($topics, $config,
   requestTimeout: $limit)` does the same for a direct consumer and returns
-  `[$proxy, $consumer]`. Note that each
+  `[$proxy, $consumer]`. `proxiedGroupConsumer($topics, requestTimeout:,
+  sessionTimeout:, heartbeatInterval:)` does the same for a group consumer,
+  so the connection to the group coordinator goes through the proxy too.
+  Note that each
   kind of request (produce, metadata, ...) has its own connection, so a
   stall affects only the kinds that already have a connection.
   `ProduceLog` keeps the log of a run in memory: give `$log->logger()` to

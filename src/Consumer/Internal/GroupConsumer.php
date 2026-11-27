@@ -8,8 +8,6 @@ use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\DeferredCancellation;
 use Amp\Future;
-use Amp\NullCancellation;
-use Amp\Pipeline;
 use Amp\TimeoutCancellation;
 use Revolt\EventLoop;
 use Thesis\Kafka\Consumer;
@@ -32,20 +30,15 @@ final class GroupConsumer implements Consumer
      */
     private ?GroupConsumer\Membership $membership = null;
 
-    /** @var ?Future<*> */
+    /** @var ?Future<null> */
     private ?Future $loop = null;
 
     private ?string $autocommitId = null;
 
     private GroupConsumer\ConsumerState $state = GroupConsumer\ConsumerState::Idle;
 
-    private GroupConsumer\ConsumeState $consume = GroupConsumer\ConsumeState::Idle;
-
-    /** @var Pipeline\Queue<GroupConsumer\Delivery> */
-    private readonly Pipeline\Queue $queue;
-
-    /** @var Pipeline\ConcurrentIterator<GroupConsumer\Delivery> */
-    private readonly Pipeline\ConcurrentIterator $iterator;
+    /** @var Buffer<GroupConsumer\Delivery> */
+    private readonly Buffer $buffer;
 
     private readonly DeferredCancellation $cancellation;
 
@@ -61,8 +54,7 @@ final class GroupConsumer implements Consumer
         private readonly GroupConsumer\OffsetResolver $offsets,
         private readonly GroupConsumer\OffsetCommitter $committer,
     ) {
-        $this->queue = new Pipeline\Queue($config->prefetchBufferSize);
-        $this->iterator = $this->queue->iterate();
+        $this->buffer = new Buffer($config->prefetchBufferSize, $config->pollTimeout);
         $this->cancellation = new DeferredCancellation();
     }
 
@@ -81,25 +73,9 @@ final class GroupConsumer implements Consumer
                     $this->doCommitUncommitted(...),
                 );
             }
-        } elseif ($this->state === GroupConsumer\ConsumerState::Closed) {
-            throw new Exception\ConsumerClosed();
         }
 
-        if ($this->consume === GroupConsumer\ConsumeState::Running) {
-            throw new Exception\ConsumerBusy();
-        }
-
-        $this->consume = GroupConsumer\ConsumeState::Running;
-
-        if ($cancellation === null && $mode === Consumer\ConsumeMode::Poll) {
-            $cancellation = new TimeoutCancellation(
-                $this->config->pollTimeout->toSeconds(3),
-            );
-        }
-
-        $cancellation ??= new NullCancellation();
-
-        return $this->createIterator($mode, $cancellation);
+        return $this->buffer->read($mode, $cancellation, $this->accept(...));
     }
 
     #[\Override]
@@ -124,21 +100,17 @@ final class GroupConsumer implements Consumer
     #[\Override]
     public function close(): void
     {
-        if ($this->state !== GroupConsumer\ConsumerState::Running) {
-            return;
+        if ($this->state !== GroupConsumer\ConsumerState::Closed) {
+            // @infection-ignore-all
+            $this->logger->info('consumer closing');
+
+            $this->state = GroupConsumer\ConsumerState::Closed;
+            $this->stopAutocommit();
+            $this->buffer->close();
+            $this->cancellation->cancel();
         }
 
-        // @infection-ignore-all
-        $this->logger->info('consumer closing');
-
-        $this->state = GroupConsumer\ConsumerState::Closed;
-
-        if ($this->autocommitId !== null) {
-            EventLoop::cancel($this->autocommitId);
-            $this->autocommitId = null;
-        }
-
-        $this->cancellation->cancel();
+        // After a fatal error the loop may still leave the group.
         $this->loop?->await();
         $this->cluster->close();
     }
@@ -147,9 +119,10 @@ final class GroupConsumer implements Consumer
     {
         $cancellation = $this->cancellation->getCancellation();
         $memberId = '';
+        $failed = false;
 
         try {
-            while ($this->state === GroupConsumer\ConsumerState::Running && !$this->cancellation->isCancelled()) {
+            while (!$cancellation->isRequested()) {
                 $membership = $this->joinController->join($memberId, $cancellation);
                 // The coordinator-assigned id is our identity across rebalances.
                 $memberId = $membership->memberId;
@@ -189,7 +162,7 @@ final class GroupConsumer implements Consumer
                 );
 
                 // Blocks for the whole generation, returns here to rejoin on rebalance.
-                $session->run($this->queue, $cancellation);
+                $session->run($this->buffer, $cancellation);
 
                 // Commit the delivered position before rejoining. Without this, a
                 // rebalance re-delivers everything consumed since the last periodic
@@ -199,15 +172,39 @@ final class GroupConsumer implements Consumer
                     $this->doCommitUncommitted();
                 }
             }
-
-            $this->queue->complete();
-        } catch (CancelledException) {
-            $this->queue->complete();
         } catch (\Throwable $e) {
-            $this->queue->error($e);
+            // close() ends the loop with its cancellation. Every other error is fatal.
+            // Nobody asked for a cancellation here, so it is a time limit of a group request.
+            if ($this->state === GroupConsumer\ConsumerState::Running) {
+                $failed = true;
+                $this->fail($e instanceof CancelledException ? new Exception\RequestTimedOut($e) : $e);
+            }
         } finally {
             $this->consumer->stop();
             $this->leaveGroup($memberId);
+
+            // Nobody calls close() after a fatal error, so the connections are closed here.
+            if ($failed) {
+                $this->cluster->close();
+            }
+        }
+    }
+
+    private function fail(\Throwable $error): void
+    {
+        // @infection-ignore-all
+        $this->logger->error('consumer stopped by an error', ['exception' => $error]);
+
+        $this->state = GroupConsumer\ConsumerState::Closed;
+        $this->stopAutocommit();
+        $this->buffer->fail($error);
+    }
+
+    private function stopAutocommit(): void
+    {
+        if ($this->autocommitId !== null) {
+            EventLoop::cancel($this->autocommitId);
+            $this->autocommitId = null;
         }
     }
 
@@ -262,34 +259,18 @@ final class GroupConsumer implements Consumer
     }
 
     /**
-     * @return iterable<non-empty-list<Consumer\Record>>
+     * @return ?non-empty-list<Consumer\Record>
      */
-    private function createIterator(
-        Consumer\ConsumeMode $mode,
-        Cancellation $cancellation,
-    ): iterable {
-        try {
-            while ($this->iterator->continue($cancellation)) {
-                $delivery = $this->iterator->getValue();
-
-                // The generation of this batch has ended: drop it.
-                if (!$delivery->session->live()) {
-                    continue;
-                }
-
-                $this->committer->mark($delivery->records);
-
-                yield $delivery->records;
-
-                if ($mode === Consumer\ConsumeMode::Poll) {
-                    return;
-                }
-            }
-        } catch (CancelledException) {
-            return;
-        } finally {
-            $this->consume = GroupConsumer\ConsumeState::Idle;
+    private function accept(GroupConsumer\Delivery $delivery): ?array
+    {
+        // The generation of this batch has ended: drop it.
+        if (!$delivery->session->live()) {
+            return null;
         }
+
+        $this->committer->mark($delivery->records);
+
+        return $delivery->records;
     }
 
     private function doCommitUncommitted(): void

@@ -6,9 +6,6 @@ namespace Thesis\Kafka\Consumer\Internal;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\NullCancellation;
-use Amp\Pipeline;
-use Amp\TimeoutCancellation;
 use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Consumer;
@@ -20,35 +17,22 @@ use Thesis\Time\TimeSpan;
 
 /**
  * The fetch core shared by every consumer kind (manual, group). Given a concrete set of
- * (topic, partition) → start offset, it spins up one fetch loop per leader ({@see FetchCycle}),
- * decodes the batches, and yields them through {@see AssignmentConsumer::consume()}. An error of the
- * fetch that cannot be fixed leaves {@see AssignmentConsumer::consume()} as an exception. It does not decide
- * which partitions to read — callers ({@see DirectConsumer}, {@see GroupConsumer}) resolve
- * that and hand it in.
+ * (topic, partition) → start offset, it spins up one fetch loop per leader ({@see FetchCycle})
+ * and decodes the batches. It gives each batch to the owner. An error of the fetch that cannot
+ * be fixed goes to the owner too. It does not decide which partitions to read — callers
+ * ({@see DirectConsumer}, {@see GroupConsumer}) resolve that and hand it in.
  *
- * One {@see AssignmentConsumer::consume()} at a time. {@see AssignmentConsumer::stop()} tears down the current fetch
- * (loops, queue, iterator). A subsequent {@see AssignmentConsumer::consume()} with a different assignment
- * starts a fresh cycle: this is how a group consumer re-fetches after a rebalance.
+ * {@see AssignmentConsumer::stop()} tears down the current fetch. A subsequent
+ * {@see AssignmentConsumer::start()} with a different assignment starts a fresh cycle:
+ * this is how a group consumer re-fetches after a rebalance.
  *
  * @internal
  */
 final class AssignmentConsumer
 {
-    /** @var ?Pipeline\Queue<non-empty-list<Consumer\Record>> */
-    private ?Pipeline\Queue $queue = null;
-
-    /** @var ?Pipeline\ConcurrentIterator<non-empty-list<Consumer\Record>> */
-    private ?Pipeline\ConcurrentIterator $iterator = null;
-
-    private ?SubscriptionState $subscription = null;
-
     private readonly Protocol\RecordBatch $batch;
 
     private ?FetchCycle $cycle = null;
-
-    private AssignmentConsumer\ConsumerState $consumer = AssignmentConsumer\ConsumerState::Idle;
-
-    private AssignmentConsumer\ConsumeState $consume = AssignmentConsumer\ConsumeState::Idle;
 
     /**
      * @param TimeSpan $requestTimeout the request timeout of the client
@@ -67,97 +51,52 @@ final class AssignmentConsumer
     }
 
     /**
-     * Begin fetching the given partitions. Starts the leader loops and the
-     * buffer. Does not read. Idempotent per assignment: call {@see stop()} to rebalance.
+     * Begin fetching the given partitions. Call {@see stop()} before the next start.
+     * Nothing runs when this method throws.
      *
      * @param TopicPartition\Map<non-negative-int> $assignments
+     * @param \Closure(non-empty-list<Consumer\Record>, Cancellation): void $deliver gets each batch, it waits while the buffer is full
+     * @param \Closure(\Throwable): void $failed gets the error that stopped the fetch
      * @throws Exception
+     * @throws CancelledException
      */
     public function start(
         TopicPartition\Map $assignments,
-        ?Cancellation $cancellation = null,
+        \Closure $deliver,
+        \Closure $failed,
+        Cancellation $cancellation,
     ): void {
-        if ($this->consumer === AssignmentConsumer\ConsumerState::Running) {
-            throw new \LogicException('Consumer already running.');
-        }
+        \assert($this->cycle === null);
 
-        $this->consumer = AssignmentConsumer\ConsumerState::Running;
+        $subscription = $this->createSubscription($assignments, $cancellation);
 
-        $this->queue = new Pipeline\Queue();
-        $this->iterator = $this->queue->iterate();
-
-        $this->subscription = $this->createSubscription(
-            $assignments,
-            $cancellation,
+        $this->cycle = new FetchCycle(
+            cluster: $this->cluster,
+            subscription: $subscription,
+            offsets: $this->offsets,
+            batch: $this->batch,
+            config: $this->config,
+            requestTimeout: $this->requestTimeout,
+            deliver: $deliver,
+            failed: $failed,
+            logger: $this->logger,
         );
 
-        $this->runFetch(
-            $this->subscription,
-            $this->queue,
-        );
+        $this->cycle->start();
     }
 
     /**
-     * @return iterable<non-empty-list<Consumer\Record>>
-     * @throws Exception
-     */
-    public function consume(
-        Consumer\ConsumeMode $mode,
-        ?Cancellation $cancellation = null,
-    ): iterable {
-        if ($this->consume === AssignmentConsumer\ConsumeState::Running) {
-            throw new Exception\ConsumerBusy();
-        }
-
-        if ($this->iterator === null) {
-            throw new \LogicException('Consumer is not running.');
-        }
-
-        $this->consume = AssignmentConsumer\ConsumeState::Running;
-
-        if ($cancellation === null && $mode === Consumer\ConsumeMode::Poll) {
-            $cancellation = new TimeoutCancellation(
-                $this->config->pollTimeout->toSeconds(3),
-            );
-        }
-
-        $cancellation ??= new NullCancellation();
-
-        return $this->iterate(
-            $this->iterator,
-            $mode,
-            $cancellation,
-        );
-    }
-
-    /**
-     * Stop the fetch entirely: leader loops, buffer, state. After this a
-     * new {@see start()} can begin a different assignment.
+     * Stop the fetch entirely. No batch is delivered after this method returns.
+     * After this a new {@see start()} can begin a different assignment.
      */
     public function stop(): void
     {
-        if ($this->consumer !== AssignmentConsumer\ConsumerState::Running) {
-            return;
-        }
-
-        $this->consumer = AssignmentConsumer\ConsumerState::Idle;
-
         // The wait below lets another coroutine call start(). Clear the state first,
         // so this stop() does not touch the new cycle.
         $cycle = $this->cycle;
-        $queue = $this->queue;
         $this->cycle = null;
-        $this->queue = null;
-        $this->iterator = null;
-        $this->subscription = null;
 
-        // The loops end first, so no loop pushes to a completed queue.
         $cycle?->stop();
-
-        // An error of the fetch has completed the queue already.
-        if ($queue !== null && !$queue->isComplete()) {
-            $queue->complete();
-        }
     }
 
     /**
@@ -166,7 +105,7 @@ final class AssignmentConsumer
      */
     private function createSubscription(
         TopicPartition\Map $assignments,
-        ?Cancellation $cancellation = null,
+        Cancellation $cancellation,
     ): SubscriptionState {
         /** @var ?UuidInterface $topicNilId */
         static $topicNilId = null;
@@ -178,7 +117,7 @@ final class AssignmentConsumer
         // Resolve which partitions exist and who leads them.
         $metadata = $this->cluster->lookup(
             $topics,
-            $cancellation ?? new NullCancellation(),
+            $cancellation,
         );
 
         $subscription = new SubscriptionState($topics);
@@ -204,54 +143,5 @@ final class AssignmentConsumer
         }
 
         return $subscription;
-    }
-
-    /**
-     * @param Pipeline\Queue<non-empty-list<Consumer\Record>> $queue
-     */
-    private function runFetch(
-        SubscriptionState $subscription,
-        Pipeline\Queue $queue,
-    ): void {
-        $this->cycle = new FetchCycle(
-            cluster: $this->cluster,
-            subscription: $subscription,
-            offsets: $this->offsets,
-            batch: $this->batch,
-            config: $this->config,
-            requestTimeout: $this->requestTimeout,
-            queue: $queue,
-            logger: $this->logger,
-        );
-
-        $this->cycle->start();
-    }
-
-    /**
-     * @param Pipeline\ConcurrentIterator<non-empty-list<Consumer\Record>> $iterator
-     * @return iterable<non-empty-list<Consumer\Record>>
-     */
-    private function iterate(
-        Pipeline\ConcurrentIterator $iterator,
-        Consumer\ConsumeMode $mode,
-        Cancellation $cancellation,
-    ): iterable {
-        try {
-            if (!$iterator->continue($cancellation)) {
-                return;
-            }
-
-            yield $iterator->getValue();
-
-            if ($mode === Consumer\ConsumeMode::Stream) {
-                while ($iterator->continue($cancellation)) {
-                    yield $iterator->getValue();
-                }
-            }
-        } catch (CancelledException) {
-            return;
-        } finally {
-            $this->consume = AssignmentConsumer\ConsumeState::Idle;
-        }
     }
 }
