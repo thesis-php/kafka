@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Consumer\Internal;
 
 use Amp\Cancellation;
-use Amp\Pipeline;
 use Ramsey\Uuid\Uuid;
 use Ramsey\Uuid\UuidInterface;
 use Thesis\Kafka\Consumer;
@@ -31,7 +30,7 @@ final readonly class Fetcher
 {
     /**
      * @param non-negative-int $leaderId
-     * @param Pipeline\Queue<non-empty-list<Consumer\Record>> $queue
+     * @param \Closure(non-empty-list<Consumer\Record>, Cancellation): void $deliver gets each batch, it waits while the buffer is full
      * @param TimeSpan $requestTimeout the request timeout of the client
      */
     public function __construct(
@@ -42,7 +41,7 @@ final readonly class Fetcher
         private Consumer\Internal\Protocol\RecordBatch $batch,
         private Consumer\Config $config,
         private TimeSpan $requestTimeout,
-        private Pipeline\Queue $queue,
+        private \Closure $deliver,
         private ContextLogger $logger,
     ) {}
 
@@ -337,7 +336,7 @@ final readonly class Fetcher
 
             // Backpressure: if the buffer is full this blocks until the
             // consumer drains it (or stop() cancels us).
-            $this->queue->pushAsync($wanted)->await($cancellation);
+            ($this->deliver)($wanted, $cancellation);
         }
 
         $this->subscription->advance($tp, $offset);

@@ -9,7 +9,6 @@ use Amp\CancelledException;
 use Amp\DeferredCancellation;
 use Amp\DeferredFuture;
 use Amp\Future;
-use Amp\Pipeline;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\Cluster;
@@ -31,8 +30,8 @@ use function Amp\delay;
  * of range, and gives the partition to the fetcher of its current leader.
  * The position stays the same, so no record is lost or read twice.
  *
- * An error that cannot be fixed stops every loop and goes to the queue, so
- * the reader of the queue gets it.
+ * An error that cannot be fixed stops every loop and goes to the owner of
+ * the cycle.
  *
  * @internal
  */
@@ -56,7 +55,8 @@ final class FetchCycle
     private ?DeferredFuture $wake = null;
 
     /**
-     * @param Pipeline\Queue<non-empty-list<Consumer\Record>> $queue
+     * @param \Closure(non-empty-list<Consumer\Record>, Cancellation): void $deliver gets each batch, it waits while the buffer is full
+     * @param \Closure(\Throwable): void $failed gets the error that stopped the cycle
      * @param TimeSpan $requestTimeout the request timeout of the client
      */
     public function __construct(
@@ -66,7 +66,8 @@ final class FetchCycle
         private readonly Protocol\RecordBatch $batch,
         private readonly Consumer\Config $config,
         private readonly TimeSpan $requestTimeout,
-        private readonly Pipeline\Queue $queue,
+        private readonly \Closure $deliver,
+        private readonly \Closure $failed,
         private readonly ContextLogger $logger,
     ) {
         $this->stopped = new DeferredCancellation();
@@ -115,7 +116,7 @@ final class FetchCycle
     }
 
     /**
-     * Stops every loop. The reader of the queue gets the error.
+     * Stops every loop. The owner of the cycle gets the error.
      */
     public function fail(\Throwable $error): void
     {
@@ -129,10 +130,7 @@ final class FetchCycle
         ]);
 
         $this->stopped->cancel();
-
-        if (!$this->queue->isComplete()) {
-            $this->queue->error($error);
-        }
+        ($this->failed)($error);
     }
 
     /**
@@ -171,7 +169,7 @@ final class FetchCycle
             batch: $this->batch,
             config: $this->config,
             requestTimeout: $this->requestTimeout,
-            queue: $this->queue,
+            deliver: $this->deliver,
             // @infection-ignore-all
             logger: $this->logger->with([
                 'component' => 'consumer.fetcher',

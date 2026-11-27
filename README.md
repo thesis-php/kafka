@@ -18,6 +18,7 @@ A pure async PHP client for Apache Kafka.
   - [Group consumer](#group-consumer)
   - [Start position](#start-position)
   - [Poll loop](#poll-loop)
+  - [Close and errors](#close-and-errors)
   - [Commit](#commit)
   - [Autocommit](#autocommit)
   - [Callback API](#callback-api)
@@ -267,8 +268,14 @@ try {
 
 ### Poll loop
 
-`ConsumeMode::Poll` returns one batch, or nothing when the timeout fires. Use it
-when you want to do other work between polls.
+`ConsumeMode::Poll` waits for the first batch. Then it also returns the batches
+that are in the buffer of the consumer at this moment, without a wait, and ends.
+When the timeout fires before the first batch, it returns nothing. Without a
+cancellation, `pollTimeout` of the consumer config is the timeout. Use it when
+you want to do other work between polls.
+
+`prefetchBufferSize` of the consumer config limits the buffer. When the buffer
+is full, the fetch waits for the reader.
 
 ```php
 use Amp\TimeoutCancellation;
@@ -278,6 +285,49 @@ while (true) {
     foreach ($consumer->consume(Consumer\ConsumeMode::Poll, new TimeoutCancellation(1.0)) as $batch) {
         // handle $batch
     }
+}
+```
+
+### Close and errors
+
+Only one `consume()` reads at a time. A second call throws
+`Exception\ConsumerBusy`. The iterable of `consume()` holds the consumer until
+its iteration ends or the iterable is destroyed.
+
+When the cancellation of `consume()` fires, the iterable gives no other batch
+and ends without an exception. The batches in the buffer stay for the next
+`consume()`, so no record is lost.
+
+`close()` stops the fetch, leaves the group and closes the connections. A
+running `consume()` gives no other batch and ends without an exception. The
+batches in the buffer are dropped. `close()` can be called many times, also
+before the first `consume()`. A closed consumer throws
+`Exception\ConsumerClosed` from every `consume()`.
+
+A fatal error closes the consumer at once: the fetch stops, autocommit stops, a
+group member leaves the group, and the connections are closed. Fatal errors are
+the errors of a fetch that no retry can fix (see [Fetch errors](#fetch-errors))
+and every failure of the group: join, sync, heartbeat, offsets. A request of the
+group that gets no answer in time, also on the last attempt, is a fatal error
+too: `Exception\RequestTimedOut`. The waiting `consume()` throws the error. When
+no `consume()` waits, the next one throws it. After that `consume()` throws
+`Exception\ConsumerClosed`. An exception of your own code inside the `foreach`
+does not close the consumer.
+
+A failed start of a consumer without a group is not fatal. For example, the
+broker is not reachable. The next `consume()` tries to start again.
+
+```php
+use Thesis\Kafka\Exception\ConsumerClosed;
+
+try {
+    foreach ($consumer->consume() as $batch) {
+        // handle $batch
+    }
+} catch (ConsumerClosed) {
+    // the consumer was closed before
+} catch (\Throwable $e) {
+    // a fatal error: the consumer is closed now
 }
 ```
 
@@ -323,7 +373,9 @@ $consumer = $client->createConsumer(['events'], new Consumer\Config(
 ### Callback API
 
 `Client::consume()` runs a callback for each batch in the background. It returns
-a context you close and join on shutdown.
+a context you close and join on shutdown. The loop runs until it is closed or
+fails, also when you do not keep the context. The callback can close the
+context too: the loop then gives it no other batch.
 
 ```php
 use Thesis\Kafka\Consumer;
@@ -363,7 +415,8 @@ The consumer reacts to each error of a fetch in one of three ways.
 - **Any other error.** For example, a partition error that no retry can fix,
   or a batch that the consumer cannot decode (`Exception\UnsupportedCodec`,
   `Exception\CorruptRecordBatch`). The consumer stops reading all partitions,
-  and `consume()` throws the error. A partition error comes as
+  `consume()` throws the error, and the consumer is closed (see
+  [Close and errors](#close-and-errors)). A partition error comes as
   `Exception\ProtocolError`. A group consumer leaves the group. With
   `Client::consume()`, `join()` throws the error.
 

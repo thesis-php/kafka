@@ -113,6 +113,7 @@ final readonly class OffsetOutOfRangeTest
             $producer = $kafka->producer();
 
             // One batch per record. With the smallest partition limit a fetch gets one batch.
+            // Without a buffer the fetcher holds at most one batch when the records are deleted.
             foreach (['a', 'b', 'c', 'd', 'e'] as $value) {
                 $producer->produceSync(new Producer\Record(value: $value, topic: $topic, partition: 0));
             }
@@ -120,6 +121,7 @@ final readonly class OffsetOutOfRangeTest
             $consumer = $kafka->directConsumer($topic, new Consumer\Config(
                 maxPartitionBytes: 1,
                 autoOffsetReset: AutoOffsetReset::Earliest,
+                prefetchBufferSize: 0,
             ));
 
             $first = $kafka->consume($consumer, count: 1);

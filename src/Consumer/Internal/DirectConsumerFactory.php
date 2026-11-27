@@ -54,6 +54,9 @@ final readonly class DirectConsumerFactory
             logger: $logger,
         );
 
+        /** @var Buffer<non-empty-list<Consumer\Record>> $buffer */
+        $buffer = new Buffer($config->prefetchBufferSize, $config->pollTimeout);
+
         return new DirectConsumer(
             cluster: $cluster,
             consumer: $consumer,
@@ -61,6 +64,7 @@ final readonly class DirectConsumerFactory
             topics: $topics,
             logger: $logger,
             requestTimeout: $this->config->requestTimeout,
+            buffer: $buffer,
         );
     }
 }

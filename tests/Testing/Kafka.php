@@ -483,6 +483,32 @@ final readonly class Kafka
     }
 
     /**
+     * Starts a proxy to the broker {@see PROXIED_BROKER} and creates a group
+     * consumer whose every connection goes through this proxy, also the one
+     * to the group coordinator. Run the scenario on {@see PROXIED_BROKER}.
+     *
+     * @param non-empty-string|non-empty-list<non-empty-string> $topics
+     * @param ?TimeSpan $requestTimeout the request timeout of the client of the consumer
+     * @return array{Proxy, Consumer}
+     */
+    public function proxiedGroupConsumer(
+        string|array $topics,
+        ?TimeSpan $requestTimeout = null,
+        ?TimeSpan $sessionTimeout = null,
+        ?TimeSpan $heartbeatInterval = null,
+    ): array {
+        $proxy = $this->proxy(new Config\Endpoint('kafka-proxied-standalone', 9094), self::PROXIED_PORT);
+        $client = $this->createClient(seeds: [$proxy->endpoint], requestTimeout: $requestTimeout);
+
+        return [$proxy, $this->groupConsumer(
+            $topics,
+            client: $client,
+            sessionTimeout: $sessionTimeout,
+            heartbeatInterval: $heartbeatInterval,
+        )];
+    }
+
+    /**
      * @param non-empty-string|non-empty-list<non-empty-string> $topics
      * @param ?Client $client the client of the consumer, the client of the run by default
      */
@@ -785,12 +811,16 @@ final readonly class Kafka
         $records = [];
 
         /** @var \Closure(Cancellation): list<Consumer\Record> $probe */
-        $probe = static function (Cancellation $cancellation) use ($consumer, &$records): array {
-            // consume() gets no cancellation: it reads for the poll timeout of the
-            // consumer. The wait still ends at its limit.
-            $read = async(static function () use ($consumer, &$records): void {
-                foreach ($consumer->consume(ConsumeMode::Poll) as $batch) {
+        $probe = static function (Cancellation $cancellation) use ($consumer, $count, &$records): array {
+            // The read stops after the batch that gives enough records. The other
+            // batches stay in the buffer of the consumer for the next read.
+            $read = async(static function () use ($consumer, $count, $cancellation, &$records): void {
+                foreach ($consumer->consume(ConsumeMode::Stream, $cancellation) as $batch) {
                     $records = [...$records, ...$batch];
+
+                    if (\count($records) >= $count) {
+                        break;
+                    }
                 }
             });
 
