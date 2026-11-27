@@ -210,7 +210,15 @@ Notes:
   `connection()`. `topic()` returns only when every broker sees the topic with
   a leader for each partition. Do not wait for it again. `topic()` also
   takes topic `configs` and a `name`, for example to create a deleted topic
-  again. `negotiatedVersion(ApiKey::Produce)` returns the version that the
+  again, and `replicas` (the main cluster has 3 brokers).
+  `moveLeader($topic, $partition)` moves the leader of a partition with two
+  replicas or more to another replica and returns the new leader. It returns
+  when every broker sees the new leader. `deleteRecords($topic, $partition,
+  $offset)` deletes the records before the offset, so the log starts there.
+  `commitOffset($groupId, $topic, $partition, $offset)` commits an offset for
+  a group without members, as an admin tool does; the broker does not check
+  the offset. `groupMembers($groupId)` returns the member ids of a group.
+  `negotiatedVersion(ApiKey::Produce)` returns the version that the
   client uses with the broker of the run.
   `createClient(seeds:, metadataMaxAge:, connectTimeout:, requestTimeout:)`
   creates one more client with other settings. `groupConsumer(..., client:)`
@@ -219,7 +227,9 @@ Notes:
   and `heartbeatInterval:` change the timeouts of the group (the main cluster
   accepts a session timeout of 6 s and more, `kafka-proxied-standalone` of 1 s
   and more). `maxWait:` shortens the wait of a fetch: a fetch that is cancelled
-  at a rebalance still holds its connection on the broker until `maxWait` ends. `groupConfig()` returns the consumer config of
+  at a rebalance still holds its connection on the broker until `maxWait` ends.
+  `autoOffsetReset:` (`Earliest` by default) and `decompressors:` change the
+  same settings of the consumer config. `groupConfig()` returns the consumer config of
   `groupConsumer()`, for example for `subscribe()` with a group. `proxy()`
   starts a TCP proxy to the first seed broker. A client that uses
   `$proxy->endpoint` loses the broker after `$proxy->disconnect()`, and
@@ -240,7 +250,9 @@ Notes:
   `proxiedProducer($config)` does this for a producer: on
   `Kafka::PROXIED_BROKER` it returns `[$proxy, $producer]`.
   `proxiedProducer($config, requestTimeout: $limit)` gives the client of
-  the producer another request timeout. Note that each
+  the producer another request timeout. `proxiedConsumer($topics, $config,
+  requestTimeout: $limit)` does the same for a direct consumer and returns
+  `[$proxy, $consumer]`. Note that each
   kind of request (produce, metadata, ...) has its own connection, so a
   stall affects only the kinds that already have a connection.
   `ProduceLog` keeps the log of a run in memory: give `$log->logger()` to

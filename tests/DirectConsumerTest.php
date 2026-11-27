@@ -12,7 +12,9 @@ use Testo\Test;
 use Thesis\Kafka\Consumer\AutoOffsetReset;
 use Thesis\Kafka\Consumer\ConsumeMode;
 use Thesis\Kafka\Exception\ConsumerBusy;
+use Thesis\Kafka\Exception\InvalidConfiguration;
 use Thesis\Kafka\Testing\Kafka;
+use Thesis\Kafka\Testing\PeerFault;
 use Thesis\Time\TimeSpan;
 use function Amp\async;
 
@@ -202,6 +204,39 @@ final readonly class DirectConsumerTest
             } catch (\RuntimeException $e) {
                 Assert::same($e->getMessage(), 'handler boom');
             }
+        });
+    }
+
+    #[Test]
+    public function noneWithoutGroupIsRejected(): void
+    {
+        Kafka::test(static function (Kafka $kafka): void {
+            // Every request to this peer fails. The config is rejected before a request.
+            $peer = $kafka->brokenPeer(PeerFault::Close);
+            $client = $kafka->createClient(seeds: [$peer->endpoint]);
+            $config = new Consumer\Config(autoOffsetReset: AutoOffsetReset::None);
+
+            $failures = [];
+
+            try {
+                $client->createConsumer('any-topic', $config);
+            } catch (InvalidConfiguration $e) {
+                $failures[] = $e;
+            }
+
+            try {
+                $client->consume('any-topic', static fn() => null, $config);
+            } catch (InvalidConfiguration $e) {
+                $failures[] = $e;
+            }
+
+            Assert::count($failures, 2);
+            Assert::same($peer->accepted(), 0);
+
+            // With a group the consumer uses the committed offset, so None is fine.
+            $topic = $kafka->topic();
+            $kafka->groupConsumer($topic, autoOffsetReset: AutoOffsetReset::None);
+            $kafka->subscribe($topic, static fn() => null, $kafka->groupConfig(autoOffsetReset: AutoOffsetReset::None));
         });
     }
 }

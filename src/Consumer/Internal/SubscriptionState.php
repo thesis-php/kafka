@@ -10,7 +10,8 @@ use Thesis\Kafka\TopicPartition;
 /**
  * Tracks the fetch position and leader of every assigned partition.
  * Shared between the fetch loops (read where to fetch, advance after
- * fetch) and the consumer's seek surface.
+ * fetch) and the recovery of {@see FetchCycle}. A partition without a
+ * leader waits for the recovery.
  *
  * @internal
  */
@@ -21,6 +22,13 @@ final class SubscriptionState
 
     /** @var TopicPartition\Map<non-negative-int> */
     private TopicPartition\Map $leaders;
+
+    /**
+     * Waiting partitions whose position is out of range.
+     *
+     * @var TopicPartition\Map<true>
+     */
+    private TopicPartition\Map $resets;
 
     /** @var array<non-empty-string, non-empty-string> */
     public private(set) array $topicsById = [];
@@ -33,6 +41,7 @@ final class SubscriptionState
     ) {
         $this->positions = new TopicPartition\Map();
         $this->leaders = new TopicPartition\Map();
+        $this->resets = new TopicPartition\Map();
     }
 
     /**
@@ -80,6 +89,51 @@ final class SubscriptionState
     public function seek(TopicPartition $tp, int $offset): void
     {
         $this->positions[$tp] = $offset;
+    }
+
+    /**
+     * The partition is not fetched until {@see follow()}.
+     *
+     * @param bool $reset the position is out of range and needs a reset
+     */
+    public function release(TopicPartition $tp, bool $reset = false): void
+    {
+        unset($this->leaders[$tp]);
+
+        if ($reset) {
+            $this->resets[$tp] = true;
+        }
+    }
+
+    /**
+     * The partition is fetched from this leader again.
+     *
+     * @param non-negative-int $leader
+     */
+    public function follow(TopicPartition $tp, int $leader): void
+    {
+        $this->leaders[$tp] = $leader;
+        unset($this->resets[$tp]);
+    }
+
+    /**
+     * @return list<TopicPartition> the partitions without a leader
+     */
+    public function waiting(): array
+    {
+        $waiting = [];
+        foreach ($this->positions as $tp) {
+            if (!isset($this->leaders[$tp])) {
+                $waiting[] = $tp;
+            }
+        }
+
+        return $waiting;
+    }
+
+    public function resetting(TopicPartition $tp): bool
+    {
+        return isset($this->resets[$tp]);
     }
 
     /**

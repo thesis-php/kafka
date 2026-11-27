@@ -75,11 +75,17 @@ final readonly class Client
 
     /**
      * @param non-empty-string|non-empty-list<non-empty-string> $topics
+     * @throws Exception\InvalidConfiguration the config has no group and {@see Consumer\AutoOffsetReset::None}
      */
     public function createConsumer(
         string|array $topics,
         Consumer\Config $config = new Consumer\Config(),
     ): Consumer {
+        // Without a group there is no committed offset, so None gives no place to start.
+        if ($config->group === null && $config->autoOffsetReset === Consumer\AutoOffsetReset::None) {
+            throw new Exception\InvalidConfiguration('A consumer without a group needs AutoOffsetReset::Earliest or AutoOffsetReset::Latest.');
+        }
+
         if (!\is_array($topics)) {
             $topics = [$topics];
         }
@@ -112,6 +118,7 @@ final readonly class Client
      *
      * @param non-empty-string|non-empty-list<non-empty-string> $topics
      * @param callable(non-empty-list<Consumer\Record>, ConsumerSession): void $handler
+     * @throws Exception\InvalidConfiguration the config has no group and {@see Consumer\AutoOffsetReset::None}
      */
     public function consume(
         string|array $topics,

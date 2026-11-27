@@ -13,10 +13,12 @@ use Psr\Log\NullLogger;
 use Ramsey\Uuid\Uuid;
 use Revolt\EventLoop;
 use Thesis\Kafka\Client;
+use Thesis\Kafka\Compressor;
 use Thesis\Kafka\Config;
 use Thesis\Kafka\Consumer;
 use Thesis\Kafka\Consumer\AutoOffsetReset;
 use Thesis\Kafka\Consumer\ConsumeMode;
+use Thesis\Kafka\Consumer\Internal\GroupConsumer\Coordinator;
 use Thesis\Kafka\ConsumerSession;
 use Thesis\Kafka\ConsumerSubscription;
 use Thesis\Kafka\Internal\Cluster;
@@ -26,6 +28,7 @@ use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\NegotiatedVersions;
 use Thesis\Kafka\Producer;
 use Thesis\Kafka\Protocol\ErrorCode;
+use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Time\TimeSpan;
 use function Amp\async;
@@ -154,6 +157,7 @@ final readonly class Kafka
      * @param positive-int $partitions
      * @param array<non-empty-string, string> $configs topic configs, for example max.message.bytes
      * @param ?non-empty-string $name the kit deletes this topic at the end too
+     * @param positive-int $replicas the replication factor, the main cluster has 3 brokers
      * @return non-empty-string
      */
     public function topic(
@@ -161,6 +165,7 @@ final readonly class Kafka
         ?TimeSpan $timeout = null,
         array $configs = [],
         ?string $name = null,
+        int $replicas = 1,
     ): string {
         if ($name !== null) {
             $this->resources->addTopic($name);
@@ -174,7 +179,7 @@ final readonly class Kafka
                     new Generated\CreateTopicsRequest\CreatableTopic(
                         name: $topic,
                         numPartitions: $partitions,
-                        replicationFactor: 1,
+                        replicationFactor: $replicas,
                         assignments: [],
                         configs: array_map(
                             static fn(string $config, string $value) => new Generated\CreateTopicsRequest\CreatableTopic\CreatableTopicConfig($config, $value),
@@ -240,6 +245,200 @@ final readonly class Kafka
     }
 
     /**
+     * Moves the leader of a partition to another replica of it. The topic needs
+     * two replicas or more. Returns when every broker sees the new leader.
+     *
+     * @param non-empty-string $topic
+     * @param non-negative-int $partition
+     * @return non-negative-int the id of the new leader
+     */
+    public function moveLeader(string $topic, int $partition = 0): int
+    {
+        $before = $this->waitUntilTopicReady($topic, $partition + 1);
+        $metadata = self::partitionMetadata($before, $partition) ?? throw new KafkaRefused("No metadata of {$topic}-{$partition}.");
+
+        $others = array_values(array_filter($metadata->replicaNodes, static fn(int $replica) => $replica !== $metadata->leaderId));
+        $leader = $others[0] ?? throw new KafkaRefused("{$topic}-{$partition} has no other replica.");
+        \assert($leader >= 0);
+
+        // The first replica is the preferred leader. The order changes, the
+        // replicas stay the same, so the reassignment moves no data.
+        $reassignment = $this->client->request(
+            new Generated\AlterPartitionReassignmentsRequest(
+                timeoutMs: self::DEFAULT_WAIT_SECONDS * 1_000,
+                allowReplicationFactorChange: false,
+                topics: [
+                    new Generated\AlterPartitionReassignmentsRequest\ReassignableTopic($topic, [
+                        new Generated\AlterPartitionReassignmentsRequest\ReassignableTopic\ReassignablePartition(
+                            partitionIndex: $partition,
+                            replicas: [$leader, ...array_values(array_diff($metadata->replicaNodes, [$leader]))],
+                        ),
+                    ]),
+                ],
+            ),
+            $this->limit(TimeSpan::fromSeconds(self::DEFAULT_WAIT_SECONDS)),
+        );
+
+        $errors = Errors::for($reassignment);
+        if (!$errors->empty()) {
+            throw new KafkaRefused((string) $errors);
+        }
+
+        $probe = $this->probe();
+        $client = $this->client;
+
+        // The controller can answer before the new order is applied. Then the
+        // election does not move the leader yet, so ask again. The reassignment
+        // can also elect the new leader itself. Then the election is not needed.
+        $this->poll(static function (Cancellation $cancellation) use ($client, $probe, $topic, $partition): array {
+            $election = Errors::for($client->request(
+                new Generated\ElectLeadersRequest(
+                    electionType: 0, // the preferred replica
+                    topicPartitions: [new Generated\ElectLeadersRequest\TopicPartitions($topic, [$partition])],
+                    timeoutMs: self::DEFAULT_WAIT_SECONDS * 1_000,
+                ),
+                $cancellation,
+            ));
+
+            foreach ($election as $error) {
+                if (!\in_array($error->code(), [ErrorCode::ElectionNotNeeded, ErrorCode::PreferredLeaderNotAvailable], true)) {
+                    throw new KafkaRefused((string) $election);
+                }
+            }
+
+            $leaders = [];
+
+            foreach (array_keys($probe->metadata($cancellation)->brokers) as $brokerId) {
+                \assert($brokerId >= 0);
+
+                $response = $probe->request(self::metadataRequest([$topic]), $cancellation, brokerId: $brokerId);
+                $leaders[$brokerId] = self::partitionMetadata($response, $partition)->leaderId ?? -1;
+            }
+
+            return $leaders;
+        })
+            ->expecting("broker {$leader} as the leader of {$topic}-{$partition} on every broker")
+            ->describedBy(static fn(array $leaders) => json_encode($leaders, JSON_THROW_ON_ERROR))
+            ->until(static fn(array $leaders) => $leaders !== [] && array_values(array_unique($leaders)) === [$leader]);
+
+        return $leader;
+    }
+
+    /**
+     * Deletes the records of a partition before the offset. The log of the
+     * partition then starts at this offset.
+     *
+     * @param non-empty-string $topic
+     * @param non-negative-int $partition
+     * @param non-negative-int $offset not more than the end of the log
+     */
+    public function deleteRecords(string $topic, int $partition, int $offset): void
+    {
+        $probe = $this->probe();
+        $limit = $this->limit(TimeSpan::fromSeconds(self::DEFAULT_WAIT_SECONDS));
+
+        // Only the leader of the partition deletes records.
+        $leader = $probe->lookup([$topic], $limit)->topics[$topic]->partitions[$partition]->leader ?? -1;
+        if ($leader < 0) {
+            throw new KafkaRefused("{$topic}-{$partition} has no leader.");
+        }
+
+        $response = $probe->request(
+            new Generated\DeleteRecordsRequest(
+                topics: [
+                    new Generated\DeleteRecordsRequest\DeleteRecordsTopic($topic, [
+                        new Generated\DeleteRecordsRequest\DeleteRecordsTopic\DeleteRecordsPartition($partition, $offset),
+                    ]),
+                ],
+                timeoutMs: self::DEFAULT_WAIT_SECONDS * 1_000,
+            ),
+            $limit,
+            brokerId: $leader,
+        );
+
+        $result = $response->topics[0]->partitions[0] ?? null;
+
+        if ($result?->errorCode !== ErrorCode::None->value || $result->lowWatermark !== $offset) {
+            throw new KafkaRefused(\sprintf(
+                'The broker did not delete the records of %s-%d before %d: %s.',
+                $topic,
+                $partition,
+                $offset,
+                $result === null ? 'no result' : (ErrorCode::tryFrom($result->errorCode)->name ?? $result->errorCode),
+            ));
+        }
+    }
+
+    /**
+     * Commits an offset for a group that has no members, as an admin tool
+     * does. The broker does not check the offset.
+     *
+     * @param non-empty-string $groupId
+     * @param non-empty-string $topic
+     * @param non-negative-int $partition
+     * @param non-negative-int $offset
+     */
+    public function commitOffset(string $groupId, string $topic, int $partition, int $offset): void
+    {
+        $limit = $this->limit(TimeSpan::fromSeconds(self::DEFAULT_WAIT_SECONDS));
+        $probe = $this->probe();
+
+        $response = $this->coordinator($groupId)->request(
+            new Generated\OffsetCommitRequest(
+                groupId: $groupId,
+                generationIdOrMemberEpoch: -1, // no generation: a commit from outside the group
+                memberId: '',
+                groupInstanceId: null,
+                retentionTimeMs: -1,
+                topics: [
+                    new Generated\OffsetCommitRequest\OffsetCommitRequestTopic(
+                        name: $topic,
+                        topicId: $probe->lookup([$topic], $limit)->topics[$topic]->topicId ?? Uuid::fromString(Uuid::NIL),
+                        partitions: [
+                            new Generated\OffsetCommitRequest\OffsetCommitRequestTopic\OffsetCommitRequestPartition(
+                                partitionIndex: $partition,
+                                committedOffset: $offset,
+                                committedLeaderEpoch: -1,
+                                committedMetadata: null,
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            $limit,
+        );
+
+        $errors = Errors::for($response);
+        if (!$errors->empty()) {
+            throw new KafkaRefused((string) $errors);
+        }
+    }
+
+    /**
+     * Returns the ids of the members of a group, as its coordinator sees them.
+     *
+     * @param non-empty-string $groupId
+     * @return list<string>
+     */
+    public function groupMembers(string $groupId): array
+    {
+        $response = $this->coordinator($groupId)->request(
+            new Generated\DescribeGroupsRequest(groups: [$groupId], includeAuthorizedOperations: false),
+            $this->limit(TimeSpan::fromSeconds(self::DEFAULT_WAIT_SECONDS)),
+        );
+
+        $errors = Errors::for($response);
+        if (!$errors->empty()) {
+            throw new KafkaRefused((string) $errors);
+        }
+
+        return array_map(
+            static fn(Generated\DescribeGroupsResponse\DescribedGroup\DescribedGroupMember $member) => $member->memberId,
+            $response->groups[0]->members ?? [],
+        );
+    }
+
+    /**
      * @param ?Client $client the client of the producer, the client of the run by default
      */
     public function producer(Producer\Config $config = new Producer\Config(), ?Client $client = null): Producer
@@ -267,6 +466,23 @@ final readonly class Kafka
     }
 
     /**
+     * Starts a proxy to the broker {@see PROXIED_BROKER} and creates a direct
+     * consumer whose every connection goes through this proxy. Run the
+     * scenario on {@see PROXIED_BROKER}.
+     *
+     * @param non-empty-string|non-empty-list<non-empty-string> $topics
+     * @param ?TimeSpan $requestTimeout the request timeout of the client of the consumer
+     * @return array{Proxy, Consumer}
+     */
+    public function proxiedConsumer(string|array $topics, Consumer\Config $config = new Consumer\Config(), ?TimeSpan $requestTimeout = null): array
+    {
+        $proxy = $this->proxy(new Config\Endpoint('kafka-proxied-standalone', 9094), self::PROXIED_PORT);
+        $client = $this->createClient(seeds: [$proxy->endpoint], requestTimeout: $requestTimeout);
+
+        return [$proxy, $this->directConsumer($topics, $config, client: $client)];
+    }
+
+    /**
      * @param non-empty-string|non-empty-list<non-empty-string> $topics
      * @param ?Client $client the client of the consumer, the client of the run by default
      */
@@ -283,7 +499,7 @@ final readonly class Kafka
     }
 
     /**
-     * Creates a group consumer that reads from the earliest offset. It has
+     * Creates a group consumer that reads from the earliest offset by default. It has
      * short session timeouts, so a rebalance in a test is fast.
      *
      * @param non-empty-string|non-empty-list<non-empty-string> $topics
@@ -300,6 +516,8 @@ final readonly class Kafka
         ?TimeSpan $sessionTimeout = null,
         ?TimeSpan $heartbeatInterval = null,
         ?TimeSpan $maxWait = null,
+        AutoOffsetReset $autoOffsetReset = AutoOffsetReset::Earliest,
+        ?Compressor\Registry $decompressors = null,
     ): Consumer {
         $consumer = ($client ?? $this->client)->createConsumer($topics, $this->groupConfig(
             groupId: $groupId,
@@ -309,6 +527,8 @@ final readonly class Kafka
             sessionTimeout: $sessionTimeout,
             heartbeatInterval: $heartbeatInterval,
             maxWait: $maxWait,
+            autoOffsetReset: $autoOffsetReset,
+            decompressors: $decompressors,
         ));
         $this->resources->addCloser('group consumer', $consumer->close(...));
 
@@ -317,13 +537,15 @@ final readonly class Kafka
 
     /**
      * Returns the consumer config of {@see groupConsumer()}: the earliest
-     * offset and short session timeouts. Use it for {@see subscribe()} with a group.
+     * offset by default and short session timeouts. Use it for {@see subscribe()} with a group.
      *
      * @param ?non-empty-string $groupId null means a new unique group
      * @param ?TimeSpan $rebalanceTimeout 6 seconds by default
      * @param ?TimeSpan $sessionTimeout 6 seconds by default, the minimum of the main cluster
      * @param ?TimeSpan $heartbeatInterval 1 second by default
      * @param ?TimeSpan $maxWait how long a fetch waits for records, the default of the consumer config
+     * @param AutoOffsetReset $autoOffsetReset where to start without a committed offset, and after an offset out of range
+     * @param ?Compressor\Registry $decompressors the codecs that the consumer can read, all available by default
      */
     public function groupConfig(
         ?string $groupId = null,
@@ -333,10 +555,13 @@ final readonly class Kafka
         ?TimeSpan $sessionTimeout = null,
         ?TimeSpan $heartbeatInterval = null,
         ?TimeSpan $maxWait = null,
+        AutoOffsetReset $autoOffsetReset = AutoOffsetReset::Earliest,
+        ?Compressor\Registry $decompressors = null,
     ): Consumer\Config {
         return new Consumer\Config(
+            decompressors: $decompressors,
             maxWait: $maxWait,
-            autoOffsetReset: AutoOffsetReset::Earliest,
+            autoOffsetReset: $autoOffsetReset,
             group: new Consumer\GroupConfig(
                 groupId: $groupId ?? $this->groupId(),
                 sessionTimeout: $sessionTimeout ?? TimeSpan::fromSeconds(6),
@@ -645,6 +870,22 @@ final readonly class Kafka
     }
 
     /**
+     * The broker does not sort the partitions of a topic by index.
+     */
+    private static function partitionMetadata(
+        Generated\MetadataResponse $response,
+        int $partition,
+    ): ?Generated\MetadataResponse\MetadataResponseTopic\MetadataResponsePartition {
+        foreach ($response->topics[0]->partitions ?? [] as $candidate) {
+            if ($candidate->partitionIndex === $partition) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param list<Consumer\Record> $records
      */
     private static function describeRecords(array $records): string
@@ -713,6 +954,19 @@ final readonly class Kafka
     {
         return $this->resources->probe(
             fn() => new Cluster($this->config, ContextLogger::null()),
+        );
+    }
+
+    /**
+     * @param non-empty-string $groupId
+     */
+    private function coordinator(string $groupId): Coordinator
+    {
+        return new Coordinator(
+            groupId: $groupId,
+            cluster: $this->probe(),
+            logger: ContextLogger::null(),
+            requestTimeout: TimeSpan::fromSeconds(self::DEFAULT_WAIT_SECONDS),
         );
     }
 

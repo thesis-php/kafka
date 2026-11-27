@@ -54,9 +54,18 @@ final readonly class GroupConsumerFactory
             requestTimeout: $this->config->requestTimeout,
         );
 
+        $lister = new OffsetLister(
+            cluster: $cluster,
+            config: $config,
+            requestTimeout: $this->config->requestTimeout,
+            logger: $logger,
+        );
+
         $consumer = new AssignmentConsumer(
             cluster: $cluster,
             config: $config,
+            offsets: $lister,
+            requestTimeout: $this->config->requestTimeout,
             logger: $logger,
         );
 
@@ -71,12 +80,7 @@ final readonly class GroupConsumerFactory
         $offsets = new GroupConsumer\OffsetResolver(
             cluster: $cluster,
             coordinator: $coordinator,
-            lister: new OffsetLister(
-                cluster: $cluster,
-                config: $config,
-                requestTimeout: $this->config->requestTimeout,
-                logger: $logger,
-            ),
+            lister: $lister,
             groupId: $group->groupId,
             autoOffsetReset: $config->autoOffsetReset,
             logger: $logger,

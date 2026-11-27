@@ -16,10 +16,12 @@ A pure async PHP client for Apache Kafka.
 - [Consumer](#consumer)
   - [Manual consume](#manual-consume)
   - [Group consumer](#group-consumer)
+  - [Start position](#start-position)
   - [Poll loop](#poll-loop)
   - [Commit](#commit)
   - [Autocommit](#autocommit)
   - [Callback API](#callback-api)
+  - [Fetch errors](#fetch-errors)
 - [Logging](#logging)
 - [Examples](#examples)
 
@@ -227,6 +229,42 @@ foreach ($consumer->consume() as $batch) {
 
 See [examples/consume-group.php](examples/consume-group.php).
 
+### Start position
+
+`autoOffsetReset` tells the consumer where to read when it has no position.
+This happens in two cases:
+
+- a group has no committed offset for a partition, or a consumer has no group;
+- the position is out of the range of the log. For example, the retention of
+  the topic has deleted the records at the position.
+
+| Value | What the consumer does |
+|-------|------------------------|
+| `AutoOffsetReset::Earliest` (default) | Reads from the first record in the log. |
+| `AutoOffsetReset::Latest` | Reads only the records that come after the reset. |
+| `AutoOffsetReset::None` | Does not choose. A group consumer without a committed offset throws `Exception\NoOffsetForPartitions`. A position out of range throws `Exception\OffsetOutOfRange`. |
+
+A consumer without a group has no committed offset, so it cannot use `None`:
+`createConsumer()` and `consume()` throw `Exception\InvalidConfiguration`.
+
+```php
+use Thesis\Kafka\Consumer;
+use Thesis\Kafka\Exception\OffsetOutOfRange;
+
+$consumer = $client->createConsumer(['events'], new Consumer\Config(
+    autoOffsetReset: Consumer\AutoOffsetReset::None,
+    group: new Consumer\GroupConfig(groupId: 'thesis-consumer'),
+));
+
+try {
+    foreach ($consumer->consume() as $batch) {
+        // handle $batch
+    }
+} catch (OffsetOutOfRange $e) {
+    echo "No records at offset {$e->offset} of {$e->partition}\n";
+}
+```
+
 ### Poll loop
 
 `ConsumeMode::Poll` returns one batch, or nothing when the timeout fires. Use it
@@ -308,6 +346,30 @@ $ctx->join();
 ```
 
 See [examples/consume-group-callable.php](examples/consume-group-callable.php).
+
+### Fetch errors
+
+The consumer reacts to each error of a fetch in one of three ways.
+
+- **Offset out of range.** The consumer resets the position by
+  `autoOffsetReset` (see [Start position](#start-position)) and reads on. With
+  `None` it stops.
+- **An error that a new attempt can fix.** For example, the leader of a
+  partition has moved, a broker is down or does not answer. The consumer waits
+  a little, asks for new metadata and tries again, without a limit of attempts.
+  The pause grows up to 1 s. A partition goes on from its position at its
+  new leader, so no record is lost or read twice. The other partitions do not
+  wait for it. To stop the wait, cancel `consume()` or close the consumer.
+- **Any other error.** For example, a partition error that no retry can fix,
+  or a batch that the consumer cannot decode (`Exception\UnsupportedCodec`,
+  `Exception\CorruptRecordBatch`). The consumer stops reading all partitions,
+  and `consume()` throws the error. A partition error comes as
+  `Exception\ProtocolError`. A group consumer leaves the group. With
+  `Client::consume()`, `join()` throws the error.
+
+Each fetch has a time limit: `maxWait` of the consumer plus `requestTimeout` of
+the client. A connection that was silent for this whole time is closed, and the
+next attempt uses a new one.
 
 ## Logging
 
