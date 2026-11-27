@@ -222,7 +222,8 @@ Notes:
   at a rebalance still holds its connection on the broker until `maxWait` ends. `groupConfig()` returns the consumer config of
   `groupConsumer()`, for example for `subscribe()` with a group. `proxy()`
   starts a TCP proxy to the first seed broker. A client that uses
-  `$proxy->endpoint` loses the broker after `$proxy->disconnect()`.
+  `$proxy->endpoint` loses the broker after `$proxy->disconnect()`, and
+  `$proxy->reconnect()` gives it back.
   `$proxy->drop()` closes the open connections; new connections work. After
   `$proxy->stall()` the open connections stay open but never answer; new
   connections work. `$proxy->accepted()` tells how many client connections
@@ -232,6 +233,13 @@ Notes:
   group coordinator, run on the broker `kafka-proxied-standalone:9092` and
   start `proxy(new Endpoint('kafka-proxied-standalone', 9094), 19094)`: the
   listener on port 9094 advertises `127.0.0.1:19094`, the port of the proxy.
+  `proxiedProducer($config)` does this for a producer: on
+  `Kafka::PROXIED_BROKER` it returns `[$proxy, $producer]`. Note that each
+  kind of request (produce, metadata, ...) has its own connection, so a
+  stall affects only the kinds that already have a connection.
+  `ProduceLog` keeps the log of a run in memory: give `$log->logger()` to
+  `logger()`, then read `records($message)`, `attempts()` (the attempt of
+  each produce request) or wait with `waitForAttempts($kafka, $count)`.
   `brokenPeer(PeerFault::Close|Stall|Garbage)` starts a TCP server that plays
   a broken broker: it closes each connection at once, never answers, or
   answers with a frame length of 2 GiB and garbage. It does not speak the
@@ -246,7 +254,8 @@ Notes:
   `loopErrorsDuring($step)` runs the step and returns the exceptions that
   reached the event loop while it ran.
 - When the closure ends, the kit closes every client it gave and deletes every
-  topic it created. It does this also when the closure fails or runs out of
+  topic it created. A producer is closed with a time limit of 5 s, so a
+  scenario with a silent broker still ends. It does this also when the closure fails or runs out of
   time. Do not close clients and do not delete topics at the end of a test.
   The exception of the closure leaves `test()` unchanged, so
   `Expect::exception()` works.

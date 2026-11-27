@@ -33,6 +33,13 @@ final class TopicProducer
     /** @var array<non-empty-string, string> */
     private array $timers = [];
 
+    /**
+     * Released batches that are not delivered yet, by batch id.
+     *
+     * @var array<non-empty-string, Future<null>>
+     */
+    private array $released = [];
+
     private TopicProducer\State $state = TopicProducer\State::Ready;
 
     /** @var non-empty-string */
@@ -64,11 +71,12 @@ final class TopicProducer
         ?Idempotency $idempotency = null,
         Cancellation $cancellation = new NullCancellation(),
     ): Future {
-        if ($this->state === TopicProducer\State::Dead) {
-            throw new \LogicException('TopicProducer is dead, create the new one.');
-        }
+        $this->ensureReady();
 
         $topicMetadata = $this->metadata->topic($this->topic, $cancellation);
+
+        // The producer can close while it waits for the metadata.
+        $this->ensureReady();
 
         $partition = $record->partition ?? $this->partitioner->partition($record, $topicMetadata->partitions());
 
@@ -84,6 +92,9 @@ final class TopicProducer
 
             $this->release($open, ContextLogger\ReleaseReasonContextKey::Size);
             $open = null;
+
+            // The producer can close while the full batch waits for the queue.
+            $this->ensureReady();
         }
 
         $open ??= $this->openNew(
@@ -103,32 +114,26 @@ final class TopicProducer
         return $deferred->getFuture();
     }
 
+    /**
+     * Releases the open batches and waits until every batch released
+     * before has a result. The errors of records stay in their futures.
+     */
     public function flush(): void
     {
-        /** @var list<Future<Producer\Produced>> $futures */
-        $futures = [];
-
         foreach ($this->open as $batch) {
             $this->release($batch, ContextLogger\ReleaseReasonContextKey::Manual);
-
-            $futures = [
-                ...$futures,
-                ...array_map(
-                    static fn(DeferredFuture $deferred) => $deferred->getFuture(),
-                    $batch->futures,
-                ),
-            ];
         }
 
-        Future\awaitAll($futures);
+        Future\awaitAll($this->released);
     }
 
+    /**
+     * Stops new records, then flushes.
+     */
     public function close(): void
     {
-        if ($this->state === TopicProducer\State::Ready) {
-            $this->state = TopicProducer\State::Dead;
-            $this->flush();
-        }
+        $this->state = TopicProducer\State::Dead;
+        $this->flush();
     }
 
     /**
@@ -245,7 +250,26 @@ final class TopicProducer
             );
         }
 
-        $this->send->push($open->release());
+        $ready = $open->release();
+        $id = $open->id;
+
+        // Register the batch before push(): a flush() during the push must wait for it.
+        $this->released[$id] = $ready->done();
+        $ready->done()->finally(function () use ($id): void {
+            unset($this->released[$id]);
+        });
+
+        $this->send->push($ready);
+    }
+
+    /**
+     * @throws Exception\ProducerClosed
+     */
+    private function ensureReady(): void
+    {
+        if ($this->state === TopicProducer\State::Dead) {
+            throw new Exception\ProducerClosed();
+        }
     }
 
     private function batchReady(OpenBatch $open, Producer\Record $record): bool

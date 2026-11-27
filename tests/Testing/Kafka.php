@@ -50,7 +50,22 @@ final readonly class Kafka
     public const array KAFKA_4_SEEDS = [
         'kafka-4-standalone:9092',
     ];
+
+    /**
+     * Every connection to this broker can go through a proxy. See {@see proxiedProducer()}.
+     */
+    public const string PROXIED_BROKER = 'kafka-proxied-standalone:9092';
+
+    /**
+     * The listener on port 9094 of the proxied broker advertises this port of 127.0.0.1.
+     */
+    private const int PROXIED_PORT = 19094;
     private const int DEFAULT_WAIT_SECONDS = 10;
+
+    /**
+     * A producer that waits for a silent broker still closes at the end of the scenario.
+     */
+    private const int PRODUCER_CLOSE_SECONDS = 5;
 
     /**
      * @internal Only {@see Setup} creates the kit.
@@ -230,9 +245,24 @@ final readonly class Kafka
     public function producer(Producer\Config $config = new Producer\Config(), ?Client $client = null): Producer
     {
         $producer = ($client ?? $this->client)->createProducer($config);
-        $this->resources->addCloser('producer', $producer->close(...));
+        $this->resources->addCloser('producer', static fn() => $producer->close(new TimeoutCancellation(self::PRODUCER_CLOSE_SECONDS)));
 
         return $producer;
+    }
+
+    /**
+     * Starts a proxy to the broker {@see PROXIED_BROKER} and creates a producer
+     * whose every connection goes through this proxy. Run the scenario on
+     * {@see PROXIED_BROKER}.
+     *
+     * @return array{Proxy, Producer}
+     */
+    public function proxiedProducer(Producer\Config $config = new Producer\Config()): array
+    {
+        $proxy = $this->proxy(new Config\Endpoint('kafka-proxied-standalone', 9094), self::PROXIED_PORT);
+        $client = $this->createClient(seeds: [$proxy->endpoint]);
+
+        return [$proxy, $this->producer($config, client: $client)];
     }
 
     /**

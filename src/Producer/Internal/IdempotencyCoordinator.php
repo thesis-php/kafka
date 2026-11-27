@@ -6,7 +6,6 @@ namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\Cancellation;
 use Amp\CancelledException;
-use Amp\DeferredFuture;
 use Amp\Future;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Exception\ProtocolError;
@@ -17,6 +16,7 @@ use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
 use Thesis\Kafka\TopicPartition;
+use function Amp\async;
 
 /**
  * @internal
@@ -41,9 +41,13 @@ final class IdempotencyCoordinator
      */
     private TopicPartition\Map $sequences;
 
+    /**
+     * @param Cancellation $closing ends the request when the producer closes
+     */
     public function __construct(
         private readonly Cluster $cluster,
         private readonly ContextLogger $logger,
+        private readonly Cancellation $closing,
     ) {
         $this->sequences = new TopicPartition\Map();
     }
@@ -52,6 +56,8 @@ final class IdempotencyCoordinator
      * Return the producer's idempotent identity, obtaining it from the
      * broker on first call. Subsequent calls return the same instance;
      * concurrent first calls await a single {@see Generated\InitProducerIdRequest}.
+     * Each caller waits with its own cancellation. After a failed request
+     * the next call sends a new one.
      *
      * @throws \Throwable
      */
@@ -61,38 +67,9 @@ final class IdempotencyCoordinator
             return $this->idempotency;
         }
 
-        if ($this->initialize !== null) {
-            return $this->initialize->await($cancellation);
-        }
+        $this->initialize ??= $this->startInitialize();
 
-        /** @var DeferredFuture<Idempotency> $deferred */
-        $deferred = new DeferredFuture();
-        $this->initialize = $deferred->getFuture();
-
-        try {
-            $idempotency = $this->requestProducerId($cancellation);
-            $this->idempotency = $idempotency;
-            // @infection-ignore-all
-            $this->logger->info('producer id obtained', [
-                'producerId' => $idempotency->producerId,
-                'producerEpoch' => $idempotency->producerEpoch,
-            ]);
-
-            $deferred->complete($idempotency);
-
-            return $idempotency;
-        } catch (\Throwable $e) {
-            // @infection-ignore-all
-            $this->logger->critical('failed to obtain producer id', [
-                'exception' => $e,
-            ]);
-
-            $deferred->error($e);
-
-            throw $e;
-        } finally {
-            $this->initialize = null;
-        }
+        return $this->initialize->await($cancellation);
     }
 
     public function sequenceFor(TopicPartition $tp): int
@@ -110,6 +87,41 @@ final class IdempotencyCoordinator
     public function reserveSequence(TopicPartition $tp, int $count): void
     {
         $this->sequences[$tp] = ($this->sequences[$tp] ?? 0) + $count;
+    }
+
+    /**
+     * Starts the request that concurrent callers share. It does not use the
+     * cancellation of the first caller.
+     *
+     * @return Future<Idempotency>
+     */
+    private function startInitialize(): Future
+    {
+        /** @var Future<Idempotency> */
+        return async(function (): Idempotency {
+            try {
+                $idempotency = $this->requestProducerId($this->closing);
+                $this->idempotency = $idempotency;
+                // @infection-ignore-all
+                $this->logger->info('producer id obtained', [
+                    'producerId' => $idempotency->producerId,
+                    'producerEpoch' => $idempotency->producerEpoch,
+                ]);
+
+                return $idempotency;
+            } catch (\Throwable $e) {
+                // @infection-ignore-all
+                $this->logger->critical('failed to obtain producer id', [
+                    'exception' => $e,
+                ]);
+
+                throw $e;
+            } finally {
+                $this->initialize = null;
+            }
+        })
+            // A request that no caller waits for any more must not report an unhandled error.
+            ->ignore();
     }
 
     /**

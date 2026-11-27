@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Producer\Internal\Sender;
 
-use Amp\DeferredCancellation;
+use Amp\Cancellation;
 use Amp\Future;
 use Amp\Pipeline;
 use Amp\Sync\LocalSemaphore;
@@ -21,8 +21,6 @@ final class PartitionWorker
 
     private PartitionWorker\State $state = PartitionWorker\State::Running;
 
-    private readonly DeferredCancellation $cancel;
-
     /** @var Future<null> */
     private readonly Future $loop;
 
@@ -33,14 +31,15 @@ final class PartitionWorker
     private string $writeId = 'a';
 
     /**
+     * @param Cancellation $cancellation fails the batches that are not delivered yet
      * @param positive-int $maxInflightProduceRequests
      */
     public function __construct(
         private readonly BatchProducer $producer,
+        private readonly Cancellation $cancellation,
         private readonly int $maxInflightProduceRequests = 1,
     ) {
         $this->queue = new Pipeline\Queue();
-        $this->cancel = new DeferredCancellation();
         $this->loop = $this->run();
     }
 
@@ -56,7 +55,6 @@ final class PartitionWorker
         if ($this->state === PartitionWorker\State::Running) {
             $this->state = PartitionWorker\State::Closed;
             $this->queue->complete();
-            $this->cancel->cancel();
             $this->loop->await();
         }
     }
@@ -68,7 +66,7 @@ final class PartitionWorker
     {
         $producer = $this->producer;
         $queue = $this->queue;
-        $cancellation = $this->cancel->getCancellation();
+        $cancellation = $this->cancellation;
         $maxInflight = $this->maxInflightProduceRequests;
         $writes = &$this->writes;
         $writeId = &$this->writeId;

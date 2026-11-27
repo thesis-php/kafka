@@ -12,6 +12,7 @@ use function Amp\async;
  * A TCP proxy in the test process. It copies bytes between the client and a
  * real broker and knows nothing about the Kafka protocol. A test calls
  * {@see disconnect()} to make the broker unreachable for the client,
+ * {@see reconnect()} to make it reachable again,
  * {@see drop()} to close the open connections, or {@see stall()} to make the
  * open connections silent.
  * Create it with {@see Kafka::proxy()}.
@@ -69,6 +70,14 @@ final class Proxy
     {
         $this->disconnected = true;
         $this->drop();
+    }
+
+    /**
+     * Undoes {@see disconnect()}: new connections reach the broker again.
+     */
+    public function reconnect(): void
+    {
+        $this->disconnected = false;
     }
 
     /**
