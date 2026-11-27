@@ -38,9 +38,16 @@ interface Producer
      * {@see Exception\ProducerClosed} and the cancellation of this call
      * leave a bulk call as an exception.
      *
+     * When a call fills a batch, the next calls for this partition wait
+     * until the partition takes this batch to send it. The calls for other
+     * partitions and topics do not wait. A batch that the linger time or
+     * {@see Producer::flush()} releases makes no call wait.
+     *
      * The provided Cancellation aborts only the waits inside this call:
-     * the producer id and the metadata of the topic. Once the record is
-     * appended to a batch, cancellation no longer affects it.
+     * the producer id, the metadata of the topic and the wait for a slow
+     * partition. When it fires, the call throws
+     * {@see \Amp\CancelledException} and the record is not queued. Once the
+     * record is appended to a batch, cancellation no longer affects it.
      *
      * @param Producer\Record|non-empty-list<Producer\Record> $records
      * @return ($records is non-empty-list<Producer\Record>
@@ -61,8 +68,9 @@ interface Producer
      * returns one ProduceResult; for a bulk call it returns a list
      * preserving input order.
      *
-     * The Cancellation works as in {@see Producer::produce()}: it does
-     * not stop the wait for the delivery.
+     * The Cancellation works as in {@see Producer::produce()}, and it also
+     * ends the wait for the delivery. The call then throws
+     * {@see \Amp\CancelledException}.
      *
      * The records that were queued are sent even when this call throws.
      * To observe their result later, use {@see Producer::produce()} and
@@ -103,8 +111,9 @@ interface Producer
      * without the linger time. The method waits until every accepted record
      * has a result, then stops the sender and closes the connections.
      *
-     * The broker has no time limit for an answer, so this wait can be long.
-     * Give a Cancellation to limit it. When the Cancellation fires, the
+     * Each attempt to send a batch has a time limit, see
+     * {@see Producer\Config::$produceTimeout}. With retries this wait can
+     * still be long. Give a Cancellation to limit it. When the Cancellation fires, the
      * records that are not delivered yet fail with
      * {@see \Amp\CancelledException}, and the producer is closed anyway.
      * A batch that was already written to the socket can still reach the

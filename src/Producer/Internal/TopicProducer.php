@@ -8,7 +8,6 @@ use Amp\Cancellation;
 use Amp\DeferredFuture;
 use Amp\Future;
 use Amp\NullCancellation;
-use Amp\Pipeline;
 use Revolt\EventLoop;
 use Thesis\Kafka\Exception;
 use Thesis\Kafka\Internal\ContextLogger;
@@ -24,7 +23,7 @@ final class TopicProducer
 {
     /**
      * Open batches, one per partition. Records append() into
-     * these. Sealed batches are removed from here and pushed to $send.
+     * these. Sealed batches are removed from here and given to the sender.
      *
      * @var array<non-negative-int, OpenBatch>
      */
@@ -32,6 +31,15 @@ final class TopicProducer
 
     /** @var array<non-empty-string, string> */
     private array $timers = [];
+
+    /**
+     * The last batch of each partition that a call released by size. It
+     * completes when the partition takes the batch. Until then, the calls for
+     * this partition wait.
+     *
+     * @var array<non-negative-int, Future<null>>
+     */
+    private array $taken = [];
 
     /**
      * Released batches that are not delivered yet, by batch id.
@@ -47,14 +55,13 @@ final class TopicProducer
 
     /**
      * @param non-empty-string $topic
-     * @param Pipeline\Queue<ReadyBatch> $send
      */
     public function __construct(
         private readonly string $topic,
         private readonly Producer\TopicPartitioner $partitioner,
         private readonly MetadataProvider $metadata,
         private readonly IdempotencyCoordinator $idempotency,
-        private readonly Pipeline\Queue $send,
+        private readonly Sender $sender,
         private readonly Producer\Config $config,
         private readonly ContextLogger $logger,
     ) {}
@@ -74,33 +81,40 @@ final class TopicProducer
         $this->ensureReady();
 
         $topicMetadata = $this->metadata->topic($this->topic, $cancellation);
+        $partitions = $topicMetadata->partitions();
+        $partition = $record->partition ?? $this->partitioner->partition($record, $partitions);
 
-        // The producer can close while it waits for the metadata.
-        $this->ensureReady();
+        while (true) {
+            // The producer can close while this call waits.
+            $this->ensureReady();
 
-        $partition = $record->partition ?? $this->partitioner->partition($record, $topicMetadata->partitions());
+            // A slow partition makes only the callers of this partition wait.
+            // A full batch that a call released is in the sender already, also when this wait is cancelled.
+            $taken = $this->taken[$partition] ?? null;
+            if ($taken !== null && !$taken->isComplete()) {
+                $taken->await($cancellation);
 
-        $open = $this->open[$partition] ?? $this->openNew(
-            partition: $partition,
-            idempotency: $idempotency,
-        );
+                continue;
+            }
 
-        if ($this->batchReady($open, $record)) {
+            // Another call can open a batch for this partition while this call waits.
+            // So the call always takes the batch that is open now.
+            $open = $this->open[$partition] ?? $this->openNew(
+                partition: $partition,
+                partitions: $partitions,
+                idempotency: $idempotency,
+            );
+
+            if (!$this->batchReady($open, $record)) {
+                break;
+            }
+
             if ($this->config->manualFlush) {
                 throw new Exception\BatchFull();
             }
 
-            $this->release($open, ContextLogger\ReleaseReasonContextKey::Size);
-            $open = null;
-
-            // The producer can close while the full batch waits for the queue.
-            $this->ensureReady();
+            $this->taken[$partition] = $this->release($open, ContextLogger\ReleaseReasonContextKey::Size);
         }
-
-        $open ??= $this->openNew(
-            partition: $partition,
-            idempotency: $idempotency,
-        );
 
         /** @var DeferredFuture<Producer\Produced> $deferred */
         $deferred = new DeferredFuture();
@@ -108,7 +122,8 @@ final class TopicProducer
         $open->futures[] = $deferred;
 
         if (!$this->config->manualFlush && $open->batch->estimatedSize() >= $this->config->batchSize) {
-            $this->release($open, ContextLogger\ReleaseReasonContextKey::Size);
+            // The record is in the batch already, so this call does not wait. The next call does.
+            $this->taken[$partition] = $this->release($open, ContextLogger\ReleaseReasonContextKey::Size);
         }
 
         return $deferred->getFuture();
@@ -138,9 +153,11 @@ final class TopicProducer
 
     /**
      * @param non-negative-int $partition
+     * @param positive-int $partitions
      */
     private function openNew(
         int $partition,
+        int $partitions,
         ?Idempotency $idempotency = null,
     ): OpenBatch {
         $sequence = 0;
@@ -168,6 +185,7 @@ final class TopicProducer
             id: $batchId,
             topic: $this->topic,
             partition: $partition,
+            partitions: $partitions,
             batch: $batch,
         );
 
@@ -198,12 +216,17 @@ final class TopicProducer
         return $open;
     }
 
-    private function release(OpenBatch $open, ContextLogger\ReleaseReasonContextKey $reason): void
+    /**
+     * Never waits, so a concurrent call sees the result of the whole release.
+     *
+     * @return Future<null> completes when the partition takes the batch to send it
+     */
+    private function release(OpenBatch $open, ContextLogger\ReleaseReasonContextKey $reason): Future
     {
         unset($this->open[$open->partition]);
 
         if ($open->state === OpenBatch\State::Released) {
-            return;
+            return Future::complete();
         }
 
         $timerId = $this->timers[$open->id] ?? null;
@@ -215,7 +238,7 @@ final class TopicProducer
         if (\count($open) === 0) {
             // Sealed without any appends. Can happen if linger
             // fires but no records actually accumulated.
-            return;
+            return Future::complete();
         }
 
         // @infection-ignore-all
@@ -228,18 +251,12 @@ final class TopicProducer
             'baseSequence' => $open->batch->baseSequence,
         ]);
 
-        // Rotate the sticky partitioner and advance the idempotent sequence
-        // BEFORE pushing to the send queue. push() can suspend when the
-        // queue is full, and during that suspend a concurrent queue() for
-        // this partition could open a new batch — which must see the rotated
-        // partition and the advanced sequence. Doing both first keeps that
-        // state update synchronous, ahead of anything the suspend lets in.
+        // A lookup of the metadata could wait or throw, also in the linger timer.
+        // So the partition count is the one that the batch got when it was opened.
         if ($this->partitioner instanceof Producer\StickyTopicPartitioner) {
-            $topicMetadata = $this->metadata->topic($this->topic);
-
             $this->partitioner->rotate(
                 partition: $open->partition,
-                partitions: $topicMetadata->partitions(),
+                partitions: $open->partitions,
             );
         }
 
@@ -253,13 +270,13 @@ final class TopicProducer
         $ready = $open->release();
         $id = $open->id;
 
-        // Register the batch before push(): a flush() during the push must wait for it.
         $this->released[$id] = $ready->done();
         $ready->done()->finally(function () use ($id): void {
             unset($this->released[$id]);
         });
 
-        $this->send->push($ready);
+        // The order of the sequences is the order of the batches in the sender.
+        return $this->sender->send($ready);
     }
 
     /**

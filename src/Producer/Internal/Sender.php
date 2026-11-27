@@ -6,107 +6,65 @@ namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\Cancellation;
 use Amp\Future;
-use Amp\Pipeline;
 use Thesis\Kafka\Internal\Cluster;
 use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Producer;
 use Thesis\Kafka\TopicPartition;
-use function Amp\async;
+use Thesis\Time\TimeSpan;
 
 /**
+ * Gives each released batch to the worker of its (topic, partition). The
+ * worker is created on first sight. Each worker sends its own batches, so a
+ * slow partition holds back only its own batches. The hand-over never waits.
+ *
  * @internal
  */
-final class Sender
+final readonly class Sender
 {
-    /** @var Future<null> */
-    private readonly Future $loop;
-
     /** @var TopicPartition\Map<Sender\PartitionWorker> */
     private TopicPartition\Map $workers;
 
-    /** @var Pipeline\ConcurrentIterator<ReadyBatch> */
-    private readonly Pipeline\ConcurrentIterator $batches;
+    private Sender\BatchProducer $producer;
 
     /**
-     * @param Pipeline\Queue<ReadyBatch> $send
+     * @param TimeSpan $requestTimeout the time for the network that each Produce attempt gets
+     *                                 in addition to {@see Producer\Config::$produceTimeout}
      * @param Cancellation $cancellation fails the batches that are not delivered yet
      */
     public function __construct(
-        private readonly Cluster $cluster,
-        private readonly Producer\Config $config,
-        Pipeline\Queue $send,
-        private readonly Cancellation $cancellation,
-        private readonly ContextLogger $logger,
+        Cluster $cluster,
+        private Producer\Config $config,
+        TimeSpan $requestTimeout,
+        private Cancellation $cancellation,
+        ContextLogger $logger,
     ) {
-        $this->batches = $send->iterate();
         $this->workers = new TopicPartition\Map();
-        $this->loop = $this->run();
-    }
-
-    public function stop(): void
-    {
-        // The queue must already be completed by the caller
-        // so this loop sees its end and exits. Wait for that first:
-        // once the router has drained and returned, no batch can still be
-        // routed to a worker, which is what makes stopping workers next safe.
-        $this->loop->await();
-
-        // Workers can now be stopped — nothing will enqueue into them.
-        $futures = [];
-        foreach ($this->workers->values() as $worker) {
-            $futures[] = async($worker->stop(...));
-        }
-
-        Future\awaitAll($futures);
+        $this->producer = new Sender\BatchProducer(
+            $cluster,
+            $config,
+            $requestTimeout,
+            // @infection-ignore-all
+            $logger->with([
+                'component' => 'producer.batchProducer',
+            ]),
+        );
     }
 
     /**
-     * The router loop: pull each sealed batch off the shared queue and hand
-     * it to the worker for its (topic, partition), creating that worker on
-     * first sight. The loop itself does no I/O — it only routes; the workers
-     * own the actual send, retry, and in-flight accounting, so a slow
-     * partition stalls only its own worker, not the routing of others.
+     * The batches of one partition are sent in the order of the calls.
      *
-     * @return Future<null>
+     * @return Future<null> completes when the partition takes the batch to send it
      */
-    private function run(): Future
+    public function send(ReadyBatch $batch): Future
     {
-        $workers = &$this->workers;
-        $cluster = $this->cluster;
-        $config = $this->config;
-        $batches = $this->batches;
-        $cancellation = $this->cancellation;
-        $logger = $this->logger;
+        $tp = new TopicPartition($batch->topic, $batch->partition);
 
-        /** @var Future<null> */
-        return async(static function () use (
-            $cluster,
-            $config,
-            $batches,
-            $cancellation,
-            &$workers,
-            $logger,
-        ): void {
-            $producer = new Sender\BatchProducer(
-                $cluster,
-                $config,
-                // @infection-ignore-all
-                $logger->with([
-                    'component' => 'producer.batchProducer',
-                ]),
-            );
+        $worker = ($this->workers[$tp] ??= new Sender\PartitionWorker(
+            $this->producer,
+            $this->cancellation,
+            $this->config->maxInflightProduceRequest,
+        ));
 
-            foreach ($batches as $batch) {
-                $tp = new TopicPartition($batch->topic, $batch->partition);
-
-                $worker = ($workers[$tp] ??= new Sender\PartitionWorker(
-                    $producer,
-                    $cancellation,
-                    $config->maxInflightProduceRequest,
-                ));
-
-                $worker->enqueue($batch);
-            }
-        });
+        return $worker->enqueue($batch);
     }
 }
