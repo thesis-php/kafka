@@ -14,7 +14,6 @@ use Thesis\Kafka\Internal\ContextLogger;
 use Thesis\Kafka\Internal\MetadataProvider;
 use Thesis\Kafka\Internal\Protocol\Record;
 use Thesis\Kafka\Producer;
-use Thesis\Kafka\TopicPartition;
 
 /**
  * @internal
@@ -60,7 +59,6 @@ final class TopicProducer
         private readonly string $topic,
         private readonly Producer\TopicPartitioner $partitioner,
         private readonly MetadataProvider $metadata,
-        private readonly IdempotencyCoordinator $idempotency,
         private readonly Sender $sender,
         private readonly Producer\Config $config,
         private readonly ContextLogger $logger,
@@ -75,7 +73,6 @@ final class TopicProducer
      */
     public function queue(
         Producer\Record $record,
-        ?Idempotency $idempotency = null,
         Cancellation $cancellation = new NullCancellation(),
     ): Future {
         $this->ensureReady();
@@ -99,11 +96,7 @@ final class TopicProducer
 
             // Another call can open a batch for this partition while this call waits.
             // So the call always takes the batch that is open now.
-            $open = $this->open[$partition] ?? $this->openNew(
-                partition: $partition,
-                partitions: $partitions,
-                idempotency: $idempotency,
-            );
+            $open = $this->open[$partition] ?? $this->openNew($partition, $partitions);
 
             if (!$this->batchReady($open, $record)) {
                 break;
@@ -155,27 +148,14 @@ final class TopicProducer
      * @param non-negative-int $partition
      * @param positive-int $partitions
      */
-    private function openNew(
-        int $partition,
-        int $partitions,
-        ?Idempotency $idempotency = null,
-    ): OpenBatch {
-        $sequence = 0;
-        if ($idempotency !== null) {
-            $sequence = $this->idempotency->sequenceFor(
-                new TopicPartition($this->topic, $partition),
-            );
-        }
-
+    private function openNew(int $partition, int $partitions): OpenBatch
+    {
         $batch = new Protocol\RecordBatch(
             compressor: $this->config->compressor,
             attributes: new Record\Attributes(
                 compression: $this->config->compressor->codec(),
             ),
             crc32c: $this->config->crc32,
-            producerId: $idempotency->producerId ?? -1,
-            producerEpoch: $idempotency->producerEpoch ?? -1,
-            baseSequence: $sequence,
         );
 
         $batchId = $this->batchId;
@@ -195,7 +175,6 @@ final class TopicProducer
         $this->logger->debug('open batch', [
             'partition' => $partition,
             'batchId' => $batchId,
-            'baseSequence' => $sequence,
         ]);
 
         if (!$this->config->manualFlush && $this->config->linger->isPositive()) {
@@ -248,7 +227,6 @@ final class TopicProducer
             'recordCount' => \count($open),
             'estimatedSize' => $open->batch->estimatedSize(),
             'reason' => $reason->name,
-            'baseSequence' => $open->batch->baseSequence,
         ]);
 
         // A lookup of the metadata could wait or throw, also in the linger timer.
@@ -260,13 +238,6 @@ final class TopicProducer
             );
         }
 
-        if ($this->config->idempotent) {
-            $this->idempotency->reserveSequence(
-                new TopicPartition($this->topic, $open->partition),
-                \count($open),
-            );
-        }
-
         $ready = $open->release();
         $id = $open->id;
 
@@ -275,7 +246,6 @@ final class TopicProducer
             unset($this->released[$id]);
         });
 
-        // The order of the sequences is the order of the batches in the sender.
         return $this->sender->send($ready);
     }
 

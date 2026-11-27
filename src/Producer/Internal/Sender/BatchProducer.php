@@ -22,11 +22,14 @@ use Thesis\Kafka\Internal\RequestTimeout;
 use Thesis\Kafka\Internal\Retry;
 use Thesis\Kafka\NetworkException;
 use Thesis\Kafka\Producer;
+use Thesis\Kafka\Producer\Internal\BatchSequence;
+use Thesis\Kafka\Producer\Internal\IdempotencyCoordinator;
 use Thesis\Kafka\Producer\Internal\ReadyBatch;
 use Thesis\Kafka\Protocol\Error\PartitionError;
 use Thesis\Kafka\Protocol\ErrorCode;
 use Thesis\Kafka\Protocol\Errors;
 use Thesis\Kafka\Protocol\Generated;
+use Thesis\Kafka\TopicPartition;
 use Thesis\Time\TimeSpan;
 use function Amp\delay;
 
@@ -41,6 +44,7 @@ final readonly class BatchProducer
     public function __construct(
         private Cluster $cluster,
         private Producer\Config $config,
+        private IdempotencyCoordinator $idempotency,
         private TimeSpan $requestTimeout,
         private ContextLogger $logger,
     ) {}
@@ -54,9 +58,14 @@ final readonly class BatchProducer
         ReadyBatch $batch,
         Cancellation $cancellation = new NullCancellation(),
     ): void {
+        // The numbers stay the same on every attempt. So the broker knows a copy of a written batch.
+        $sequence = $this->config->idempotent
+            ? $this->idempotency->next(new TopicPartition($batch->topic, $batch->partition), \count($batch->batch))
+            : null;
+
         for ($attempt = 1;; ++$attempt) {
             try {
-                $failure = $this->send($batch, $attempt, $cancellation);
+                $failure = $this->send($batch, $sequence, $attempt, $cancellation);
 
                 if ($failure === null) {
                     return;
@@ -75,7 +84,7 @@ final readonly class BatchProducer
                         'exception' => $e,
                     ]);
 
-                    $batch->fail($e);
+                    $this->failForGood($batch, $sequence, $e);
 
                     return;
                 }
@@ -92,7 +101,7 @@ final readonly class BatchProducer
                     'exception' => $failure,
                 ]);
 
-                $batch->fail($failure);
+                $this->failForGood($batch, $sequence, $failure);
 
                 return;
             }
@@ -142,7 +151,7 @@ final readonly class BatchProducer
      *                        or null when the batch is done
      * @throws \Throwable
      */
-    private function send(ReadyBatch $batch, int $attempt, Cancellation $cancellation): ?ProtocolError
+    private function send(ReadyBatch $batch, ?BatchSequence $sequence, int $attempt, Cancellation $cancellation): ?ProtocolError
     {
         // A batch that waited in the queue during a cancellation is not sent.
         $cancellation->throwIfRequested();
@@ -158,7 +167,8 @@ final readonly class BatchProducer
             'topic' => $batch->topic,
             'partition' => $batch->partition,
             'recordCount' => \count($batch->futures),
-            'baseSequence' => $batch->batch->baseSequence,
+            'producerEpoch' => $sequence?->producerEpoch,
+            'baseSequence' => $sequence?->baseSequence,
             'attempt' => $attempt,
         ]);
 
@@ -171,7 +181,7 @@ final readonly class BatchProducer
 
         try {
             $response = $this->cluster->request(
-                request: $this->createRequest($batch, $topicId),
+                request: $this->createRequest($batch, $sequence, $topicId),
                 cancellation: $limit,
                 reply: $this->config->acks === Producer\Acks::None ? Connection\Reply::None : Connection\Reply::Expected,
                 brokerId: $leaderId,
@@ -231,12 +241,25 @@ final readonly class BatchProducer
                 'attempt' => $attempt,
             ]);
 
-            $batch->fail($failure);
+            $this->failForGood($batch, $sequence, $failure);
 
             return null;
         }
 
         return $failure;
+    }
+
+    /**
+     * The producer does not know whether the broker wrote the batch.
+     * So the next batches of the partition start with a new epoch.
+     */
+    private function failForGood(ReadyBatch $batch, ?BatchSequence $sequence, \Throwable $error): void
+    {
+        if ($sequence !== null) {
+            $this->idempotency->raiseEpoch();
+        }
+
+        $batch->fail($error);
     }
 
     /**
@@ -279,7 +302,7 @@ final readonly class BatchProducer
     /**
      * Sets both the name and the id. Produce v13+ sends only the id, older versions only the name.
      */
-    private function createRequest(ReadyBatch $ready, UuidInterface $topicId): Generated\ProduceRequest
+    private function createRequest(ReadyBatch $ready, ?BatchSequence $sequence, UuidInterface $topicId): Generated\ProduceRequest
     {
         return new Generated\ProduceRequest(
             transactionalId: null,
@@ -292,7 +315,7 @@ final readonly class BatchProducer
                     partitionData: [
                         new Generated\ProduceRequest\TopicProduceData\PartitionProduceData(
                             index: $ready->partition,
-                            records: $ready->batch->encode(),
+                            records: $ready->batch->encode($sequence),
                         ),
                     ],
                 ),

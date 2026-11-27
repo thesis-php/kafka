@@ -34,10 +34,9 @@ final class IdempotencyCoordinator
     private ?Future $initialize = null;
 
     /**
-     * Next sequence number per partition. Sealing a batch reserves a
-     * contiguous range starting here and advances by the record count.
+     * The numbers of the next batch of each partition.
      *
-     * @var TopicPartition\Map<non-negative-int>
+     * @var TopicPartition\Map<BatchSequence>
      */
     private TopicPartition\Map $sequences;
 
@@ -54,7 +53,7 @@ final class IdempotencyCoordinator
 
     /**
      * Return the producer's idempotent identity, obtaining it from the
-     * broker on first call. Subsequent calls return the same instance;
+     * broker on first call. Subsequent calls send no request;
      * concurrent first calls await a single {@see Generated\InitProducerIdRequest}.
      * Each caller waits with its own cancellation. After a failed request
      * the next call sends a new one.
@@ -72,21 +71,56 @@ final class IdempotencyCoordinator
         return $this->initialize->await($cancellation);
     }
 
-    public function sequenceFor(TopicPartition $tp): int
+    /**
+     * Gives the numbers to the next batch of the partition. Call it only
+     * when the partition has no batch in flight. Then the partition can
+     * move to the newest epoch and start again at sequence 0.
+     *
+     * @param non-negative-int $count the number of records in the batch
+     */
+    public function next(TopicPartition $tp, int $count): BatchSequence
     {
-        return $this->sequences[$tp] ?? 0;
+        $idempotency = $this->idempotency;
+        \assert($idempotency !== null, 'a batch is sent only after the producer id is known');
+
+        $next = $this->sequences[$tp] ?? null;
+        if ($next?->producerEpoch !== $idempotency->producerEpoch) {
+            $next = new BatchSequence(
+                producerId: $idempotency->producerId,
+                producerEpoch: $idempotency->producerEpoch,
+                baseSequence: 0,
+            );
+        }
+
+        $this->sequences[$tp] = new BatchSequence(
+            producerId: $next->producerId,
+            producerEpoch: $next->producerEpoch,
+            baseSequence: $next->baseSequence + $count,
+        );
+
+        return $next;
     }
 
     /**
-     * Reserve a contiguous range of $count sequence numbers for a
-     * partition, returning the base (first). Records in the sealed batch
-     * map to base .. base + count - 1.
-     *
-     * @param positive-int $count
+     * Raises the epoch after a batch failed for good. The broker may have
+     * written the batch or not, so the old sequence of the partition is not
+     * safe any more. The broker accepts a higher epoch with sequence 0.
      */
-    public function reserveSequence(TopicPartition $tp, int $count): void
+    public function raiseEpoch(): void
     {
-        $this->sequences[$tp] = ($this->sequences[$tp] ?? 0) + $count;
+        $idempotency = $this->idempotency;
+        \assert($idempotency !== null, 'a batch is sent only after the producer id is known');
+
+        $this->idempotency = new Idempotency(
+            producerId: $idempotency->producerId,
+            producerEpoch: $idempotency->producerEpoch + 1,
+        );
+
+        // @infection-ignore-all
+        $this->logger->warning('producer epoch raised', [
+            'producerId' => $idempotency->producerId,
+            'producerEpoch' => $idempotency->producerEpoch + 1,
+        ]);
     }
 
     /**

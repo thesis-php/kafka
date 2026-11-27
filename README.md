@@ -95,6 +95,14 @@ $producer = $client->createProducer(new Producer\Config(
 ));
 ```
 
+A record can still fail, for example when the broker rejects it or when all
+attempts run out of time. Only the futures of this record and of the records
+in its batch fail. The producer
+then raises its epoch, and the partition starts its sequence at 0 again. So
+the next records of the partition are delivered, in the order of `produce()`.
+After a timeout the producer does not know whether the broker wrote the failed
+record. It may be in the topic once.
+
 ### Manual flush
 
 With `manualFlush: true` the producer does not send batches on its own. You
