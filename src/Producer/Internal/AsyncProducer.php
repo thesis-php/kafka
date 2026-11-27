@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\Cancellation;
+use Amp\CancelledException;
+use Amp\CompositeCancellation;
+use Amp\DeferredCancellation;
 use Amp\Future;
 use Amp\NullCancellation;
 use Amp\Pipeline;
@@ -53,7 +56,22 @@ final class AsyncProducer implements Producer
 
     private readonly Sender $sender;
 
-    private bool $closed = false;
+    /**
+     * Ends the waits of produce() when close() is called.
+     */
+    private readonly DeferredCancellation $closing;
+
+    /**
+     * Fails the batches that are not delivered yet when a cancellation of close() fires.
+     */
+    private readonly DeferredCancellation $abort;
+
+    /**
+     * Null until close() is called. Completes when the producer is closed.
+     *
+     * @var ?Future<null>
+     */
+    private ?Future $closed = null;
 
     public function __construct(
         private readonly Cluster $cluster,
@@ -61,17 +79,21 @@ final class AsyncProducer implements Producer
         private readonly ContextLogger $logger,
     ) {
         $this->send = new Pipeline\Queue();
+        $this->closing = new DeferredCancellation();
+        $this->abort = new DeferredCancellation();
         $this->idempotencyCoordinator = new IdempotencyCoordinator(
             $cluster,
             // @infection-ignore-all
             $this->logger->with([
                 'component' => 'producer.idempotency',
             ]),
+            $this->closing->getCancellation(),
         );
         $this->sender = new Sender(
             cluster: $cluster,
             config: $config,
             send: $this->send,
+            cancellation: $this->abort->getCancellation(),
             // @infection-ignore-all
             logger: $this->logger->with([
                 'component' => 'producer.sender',
@@ -84,14 +106,30 @@ final class AsyncProducer implements Producer
         Producer\Record|array $records,
         Cancellation $cancellation = new NullCancellation(),
     ): Future|array {
-        if (\is_array($records)) {
-            return array_map(
-                fn(Producer\Record $record) => $this->doProduce($record, $cancellation),
-                $records,
-            );
+        if (!\is_array($records)) {
+            return $this->doProduce($records, $cancellation);
         }
 
-        return $this->doProduce($records, $cancellation);
+        $futures = [];
+
+        foreach ($records as $record) {
+            try {
+                $futures[] = $this->doProduce($record, $cancellation);
+            } catch (\Throwable $e) {
+                if ($e instanceof Exception\ProducerClosed || ($e instanceof CancelledException && $cancellation->isRequested())) {
+                    // The caller gets no futures, so nobody else can handle their errors.
+                    foreach ($futures as $future) {
+                        $future->ignore();
+                    }
+
+                    throw $e;
+                }
+
+                $futures[] = Future::error($e);
+            }
+        }
+
+        return $futures;
     }
 
     #[\Override]
@@ -111,6 +149,10 @@ final class AsyncProducer implements Producer
     #[\Override]
     public function flush(): void
     {
+        if ($this->closed !== null) {
+            return;
+        }
+
         $futures = [];
 
         foreach ($this->producers as $producer) {
@@ -121,26 +163,32 @@ final class AsyncProducer implements Producer
     }
 
     #[\Override]
-    public function close(): void
+    public function close(Cancellation $cancellation = new NullCancellation()): void
     {
-        if ($this->closed) {
-            return;
-        }
+        // The first call starts the shutdown. Every call waits for it.
+        $this->closed ??= async($this->shutdown(...));
 
-        $this->closed = true;
+        $id = $cancellation->subscribe($this->abort->cancel(...));
+
+        try {
+            $this->closed->await();
+        } finally {
+            $cancellation->unsubscribe($id);
+        }
+    }
+
+    private function shutdown(): void
+    {
+        // produce() is rejected from now on. Its waits end too.
+        $this->closing->cancel();
 
         // @infection-ignore-all
         $this->logger->info('close producer', [
             'producers' => \count($this->producers),
         ]);
 
-        // Shut down in dependency order: writers first, then the queue they
-        // write into, then the reader of that queue.
-
-        // 1. Close every TopicProducer. Each flushes its open batches into
-        //    the queue and stops accepting writes — pushing after the queue
-        //    is completed would be an error, so all writers must be done
-        //    before we complete it.
+        // Each TopicProducer releases its open batches and waits until every
+        // batch has a result. A cancellation of close() fails the rest.
         $futures = [];
         foreach ($this->producers as $producer) {
             $futures[] = async($producer->close(...));
@@ -148,15 +196,11 @@ final class AsyncProducer implements Producer
 
         Future\awaitAll($futures);
 
-        // 2. Complete the queue. With no writers left, this is the signal the
-        //    Sender's router loop watches for — its foreach over the queue
-        //    ends once the buffer drains.
+        // No batch is left, so nobody pushes into the queue any more.
+        // The router loop of the Sender ends when the queue is completed.
         $this->send->complete();
-
-        // 3. Stop the Sender. It waits for the router loop to finish draining
-        //    and for every partition worker to flush its in-flight batches,
-        //    so close() returns only once all records have actually been sent.
         $this->sender->stop();
+        $this->cluster->close();
     }
 
     /**
@@ -165,8 +209,10 @@ final class AsyncProducer implements Producer
      */
     private function doProduce(
         Producer\Record $record,
-        Cancellation $cancellation = new NullCancellation(),
+        Cancellation $cancellation,
     ): Future {
+        $this->ensureOpen();
+
         $topic = $record->topic
             ?? $this->config->defaultTopic
             ?? throw new \LogicException('No producer record topic and no default');
@@ -177,25 +223,46 @@ final class AsyncProducer implements Producer
             'topic' => $topic,
         ]);
 
-        if ($this->config->idempotent) {
-            $idempotency = $this->idempotencyCoordinator->initialize($cancellation);
-            // @infection-ignore-all
-            $logger = $logger->with([
-                'producerId' => $idempotency->producerId,
-                'producerEpoch' => $idempotency->producerEpoch,
-            ]);
+        $wait = new CompositeCancellation($cancellation, $this->closing->getCancellation());
+
+        try {
+            if ($this->config->idempotent) {
+                $idempotency = $this->idempotencyCoordinator->initialize($wait);
+                // @infection-ignore-all
+                $logger = $logger->with([
+                    'producerId' => $idempotency->producerId,
+                    'producerEpoch' => $idempotency->producerEpoch,
+                ]);
+
+                // The producer can close while it waits for the producer id.
+                $this->ensureOpen();
+            }
+
+            $producer = $this->producers[$topic] ??= new TopicProducer(
+                topic: $topic,
+                partitioner: $this->config->partitioner->forTopic($topic),
+                metadata: $this->cluster,
+                idempotency: $this->idempotencyCoordinator,
+                send: $this->send,
+                config: $this->config,
+                logger: $logger,
+            );
+
+            return $producer->queue($record, $idempotency, $wait);
+        } catch (CancelledException $e) {
+            $this->ensureOpen();
+
+            throw $e;
         }
+    }
 
-        $producer = $this->producers[$topic] ??= new TopicProducer(
-            topic: $topic,
-            partitioner: $this->config->partitioner->forTopic($topic),
-            metadata: $this->cluster,
-            idempotency: $this->idempotencyCoordinator,
-            send: $this->send,
-            config: $this->config,
-            logger: $logger,
-        );
-
-        return $producer->queue($record, $idempotency);
+    /**
+     * @throws Exception\ProducerClosed
+     */
+    private function ensureOpen(): void
+    {
+        if ($this->closed !== null) {
+            throw new Exception\ProducerClosed();
+        }
     }
 }

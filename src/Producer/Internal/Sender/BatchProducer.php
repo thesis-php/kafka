@@ -126,6 +126,9 @@ final readonly class BatchProducer
      */
     private function send(ReadyBatch $batch, int $attempt, Cancellation $cancellation): ?ProtocolError
     {
+        // A batch that waited in the queue during a cancellation is not sent.
+        $cancellation->throwIfRequested();
+
         [$leaderId, $topicId] = $this->partitionLeader(
             $batch->topic,
             $batch->partition,

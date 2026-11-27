@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Thesis\Kafka\Producer\Internal;
 
+use Amp\Cancellation;
 use Amp\Future;
 use Amp\Pipeline;
 use Thesis\Kafka\Internal\Cluster;
@@ -28,11 +29,13 @@ final class Sender
 
     /**
      * @param Pipeline\Queue<ReadyBatch> $send
+     * @param Cancellation $cancellation fails the batches that are not delivered yet
      */
     public function __construct(
         private readonly Cluster $cluster,
         private readonly Producer\Config $config,
         Pipeline\Queue $send,
+        private readonly Cancellation $cancellation,
         private readonly ContextLogger $logger,
     ) {
         $this->batches = $send->iterate();
@@ -72,6 +75,7 @@ final class Sender
         $cluster = $this->cluster;
         $config = $this->config;
         $batches = $this->batches;
+        $cancellation = $this->cancellation;
         $logger = $this->logger;
 
         /** @var Future<null> */
@@ -79,6 +83,7 @@ final class Sender
             $cluster,
             $config,
             $batches,
+            $cancellation,
             &$workers,
             $logger,
         ): void {
@@ -96,6 +101,7 @@ final class Sender
 
                 $worker = ($workers[$tp] ??= new Sender\PartitionWorker(
                     $producer,
+                    $cancellation,
                     $config->maxInflightProduceRequest,
                 ));
 

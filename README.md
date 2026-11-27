@@ -11,6 +11,7 @@ A pure async PHP client for Apache Kafka.
   - [Sync produce](#sync-produce)
   - [Idempotent producer](#idempotent-producer)
   - [Manual flush](#manual-flush)
+  - [Close](#close)
 - [Consumer](#consumer)
   - [Manual consume](#manual-consume)
   - [Group consumer](#group-consumer)
@@ -111,6 +112,30 @@ $producer->flush();
 ```
 
 See [examples/produce-manual-flush.php](examples/produce-manual-flush.php).
+
+### Close
+
+`close()` sends the open batches at once, without the linger time. Then it
+waits until every record has a result, and closes the connections. After the
+call, `produce()` throws `Exception\ProducerClosed`.
+
+```php
+$producer->close();
+```
+
+The broker has no time limit for an answer, so this wait can be long. Give a
+cancellation to limit it. When it fires, the records that are not delivered
+yet fail with `Amp\CancelledException`, and the producer is closed anyway.
+`close()` does not throw in this case. Check the futures of the records.
+
+```php
+use Amp\TimeoutCancellation;
+
+$producer->close(new TimeoutCancellation(5));
+```
+
+Use `flush()` when you want to wait for the records but keep the producer
+open. See [examples/produce-close.php](examples/produce-close.php).
 
 ## Consumer
 

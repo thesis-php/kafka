@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Thesis\Kafka\Producer\Internal;
 
 use Amp\DeferredFuture;
+use Amp\Future;
 use Thesis\Kafka\Producer;
 
 /**
@@ -12,6 +13,9 @@ use Thesis\Kafka\Producer;
  */
 final readonly class ReadyBatch
 {
+    /** @var DeferredFuture<null> */
+    private DeferredFuture $done;
+
     /**
      * @param non-empty-string $topic
      * @param non-negative-int $partition
@@ -22,7 +26,19 @@ final readonly class ReadyBatch
         public int $partition,
         public Protocol\RecordBatch $batch,
         public array $futures,
-    ) {}
+    ) {
+        $this->done = new DeferredFuture();
+    }
+
+    /**
+     * Completes when every record of the batch has a result. It never fails.
+     *
+     * @return Future<null>
+     */
+    public function done(): Future
+    {
+        return $this->done->getFuture();
+    }
 
     /**
      * @param ?non-negative-int $offset
@@ -38,6 +54,8 @@ final readonly class ReadyBatch
                 timestamp: $timestamp > 0 ? $timestamp : null,
             ));
         }
+
+        $this->done->complete();
     }
 
     public function fail(\Throwable $error): void
@@ -45,5 +63,7 @@ final readonly class ReadyBatch
         foreach ($this->futures as $future) {
             $future->error($error);
         }
+
+        $this->done->complete();
     }
 }
