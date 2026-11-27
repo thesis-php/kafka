@@ -548,6 +548,11 @@ How to read this file:
 - Unverified: zstd frames of Java producers have no content size; old
   versions of the extension reject them.
 
+- Planned in task 024: checked against the code after task 019. Every item
+  is still true. The Zstd item is still not verified: the task tests it on
+  a broker. The size limit of the decompression is a part of the task, as
+  a new setting of the consumer config.
+
 ## 025 Send the client id
 
 - **`Config::$clientId` is never sent.**

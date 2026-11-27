@@ -48,7 +48,7 @@ One line per task, in the order of work:
 - [ ] 022 Group commits
 - [ ] 009 Topic ids in offset commit
 - [ ] 023 Group membership
-- [ ] 024 Compression codecs
+- [ ] [024 Compression codecs](024-compression-codecs.md)
 - [ ] [025 Send the client id](025-send-client-id.md)
 - [ ] [028 Compare the port of an endpoint](028-endpoint-port.md)
 - [ ] [029 Timestamp of LogAppendTime records](029-log-append-time.md)
