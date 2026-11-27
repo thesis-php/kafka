@@ -49,14 +49,13 @@ One line per task, in the order of work:
 - [ ] 009 Topic ids in offset commit
 - [ ] 023 Group membership
 - [ ] 024 Compression codecs
-- [ ] 025 Send the client id
-- [ ] 028 Compare the port of an endpoint
-- [ ] 029 Timestamp of LogAppendTime records
+- [ ] [025 Send the client id](025-send-client-id.md)
+- [ ] [028 Compare the port of an endpoint](028-endpoint-port.md)
+- [ ] [029 Timestamp of LogAppendTime records](029-log-append-time.md)
 - [ ] 030 Errors lost by Errors::for()
 - [ ] 031 Library exceptions in place of generic ones
 - [ ] 041 Requests that go to the controller
 - [ ] 042 Connection and metadata leftovers
-- [ ] 043 Error codes after 133
 - [ ] 044 Limits of the idempotent sequence and epoch
 - [ ] 045 Fetch at a rebalance and partition order
 - [ ] 026 Write and read performance
@@ -93,3 +92,8 @@ Topics that are not part of 0.1.x. They have no numbers and no task files.
   keeps its partitions forever, because the heartbeat runs in the
   background. There is no `max.poll.interval` equivalent.
 - Rebootstrap when all known broker addresses changed (KIP-899).
+- Error codes after 133 (it was task 043). Kafka 4.2.0 ends at code 133.
+  The codes 134-145 are only in the trunk of Kafka, and their names can
+  still change. Add them when a Kafka release has them, together with the
+  schemas of that release (`make sync-schemas`). See section "043" of
+  [audit-findings.md](audit-findings.md).

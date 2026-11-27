@@ -722,6 +722,12 @@ Found while tasks 013, 014 and 015 were implemented. No task covered them.
   `MIRROR_CONFIG_NOT_AVAILABLE` (144). The client does not retry it. The
   fix adds cases to an `@api` enum. `tests/Protocol/ErrorCodeTest.php` has
   the fixed list of retriable errors and must get the new ones.
+- Planned on 2026-11-27, checked against Kafka: `Errors.java` of the
+  release 4.2.0 ends at `SHARE_SESSION_LIMIT_REACHED` (133), as
+  `Protocol\ErrorCode` does. The codes 134-145 are only in the trunk. No
+  released broker sends them, and their names can still change, while
+  `ErrorCode` is `@api`. The task is deferred: see "Deferred to 0.2.x" in
+  the journal `README.md`.
 
 ## 044 Limits of the idempotent sequence and epoch
 
