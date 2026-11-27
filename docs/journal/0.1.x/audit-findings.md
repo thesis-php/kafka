@@ -346,6 +346,23 @@ How to read this file:
   got such a limit in task 021 (`Internal\RequestTimeout::start()` with the
   cancellation of the caller).
 
+- Planned in task 019: checked against the code after task 018.
+  - Still true: "Partition errors are only logged", "A dead fetch loop is
+    not reported", "`AutoOffsetReset::None` is sent as timestamp 0", and
+    the missing client time limit of Fetch and ListOffsets.
+  - Fixed already: "`ListOffsets` errors are a bare `\RuntimeException`".
+    `OffsetLister` throws `Exception\ProtocolError` and retries.
+  - New, from the code: `SubscriptionState` never changes the leader of a
+    partition and a `Fetcher` is bound to one broker id. This is why a
+    consumer does not recover after a leader move. The `catch` of
+    `Fetcher::run()` has no pause, and an exception of its metadata
+    refresh ends the loop too.
+  - Moved to task 045: the Fetch that holds its connection at a rebalance,
+    and the order of the partitions in a request.
+  - Not planned: `RecordBatch::decode` does not check the batch length.
+    Still true in the code. No test can show it, because the kit has no
+    broker that answers a Fetch with garbage.
+
 ## 020 Consumer lifecycle
 
 - **`start()` is not exception-safe.**
@@ -681,6 +698,20 @@ task first needs a decision on how to test them.
   each batch that failed for good. The epoch is an int16 on the wire. At
   32767 the Java client asks for a new producer id with InitProducerId.
   Only seen in the code.
+
+## 045 Fetch at a rebalance and partition order
+
+Moved from section 019 when task 019 was planned.
+
+- Found in task 021, seen on a broker: a Fetch that is cancelled at a
+  rebalance still holds its connection on the broker until
+  `Consumer\Config::$maxWait` ends (5 s by default). The next Fetch of the
+  member waits behind it on the same connection. Every rebalance is delayed
+  by up to `maxWait`.
+- Unverified, from the code: `Fetcher::createFetchRequest()`
+  (`src/Consumer/Internal/Fetcher.php`) always sends the partitions in the
+  same order. When an answer is cut at `Consumer\Config::$maxBytes`, the
+  last partitions can starve. The Java client rotates the order.
 
 ## Checked and found correct
 

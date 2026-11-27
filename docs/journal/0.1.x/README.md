@@ -43,7 +43,7 @@ One line per task, in the order of work:
 - [x] [016 Producer shutdown](016-producer-shutdown.md) — [922c6d7](https://github.com/thesis-php/kafka/commit/922c6d7)
 - [x] [017 Producer concurrency](017-producer-concurrency.md) — [50227a1](https://github.com/thesis-php/kafka/commit/50227a1)
 - [x] [018 Idempotent producer after a failed batch](018-idempotent-producer-after-failed-batch.md) — [1800c01](https://github.com/thesis-php/kafka/commit/1800c01)
-- [ ] 019 Fetch errors
+- [ ] [019 Fetch errors](019-fetch-errors.md)
 - [ ] 020 Consumer lifecycle
 - [ ] 022 Group commits
 - [ ] 009 Topic ids in offset commit
@@ -58,6 +58,7 @@ One line per task, in the order of work:
 - [ ] 042 Connection and metadata leftovers
 - [ ] 043 Error codes after 133
 - [ ] 044 Limits of the idempotent sequence and epoch
+- [ ] 045 Fetch at a rebalance and partition order
 - [ ] 026 Write and read performance
 - [ ] 027 One Produce request per broker
 - [ ] [003 Transactional producer](003-transactional-producer.md)
