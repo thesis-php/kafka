@@ -269,6 +269,13 @@ How to read this file:
   changed the doc to say what the code does. Decide whether the wait must
   be cancellable.
 
+- Planned in task 017: checked against the code after task 016. Every item
+  of this section is still true. The lost batch, the blocked router and the
+  missing time limit are certain from the code. The throw in the linger
+  timer and the `PartitionWorker` path are still not seen on a broker.
+  Decided: the cancellation of `produceSync()` will also end the wait for
+  the delivery.
+
 ## 018 Idempotent producer after a failed batch
 
 - **A failed batch leaves a gap in the sequence.**
