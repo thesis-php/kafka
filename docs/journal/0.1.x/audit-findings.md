@@ -262,6 +262,13 @@ How to read this file:
   resolve. `produce()` catches everything today, so nothing reaches this
   path. It is only a weak spot.
 
+- Found in task 016, from the code: `AsyncProducer::produceSync()` does not
+  give its cancellation to the wait for the delivery. The cancellation ends
+  only the waits inside `produce()`. The old doc of
+  `Producer::produceSync()` said that it also ends the wait. Task 016
+  changed the doc to say what the code does. Decide whether the wait must
+  be cancellable.
+
 ## 018 Idempotent producer after a failed batch
 
 - **A failed batch leaves a gap in the sequence.**
@@ -535,6 +542,13 @@ How to read this file:
   PHPStan then reports `catch (CancelledException)` around a direct call as
   a dead catch. Decide in this task whether a timeout of the setup reaches
   the user as `CancelledException` or as a library exception.
+
+- Found in task 016, from the code: since task 016 a bulk `produce([...])`
+  puts the exception of a record into its future. So the
+  `\LogicException` "No producer record topic and no default" of
+  `AsyncProducer::doProduce()` reaches the user through a failed future
+  too. "TopicProducer is dead" is gone: it is `Exception\ProducerClosed`
+  now.
 
 ## 026 Write and read performance
 
